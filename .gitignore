@@ -17,6 +17,7 @@ docs/planning/
 # Local config
 .env
 .env.local
+.claude/settings.local.json
 
 # Benchmark results
 *.bench
