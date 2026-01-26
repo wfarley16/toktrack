@@ -151,6 +151,20 @@ See `.claude/ai-context/` for detailed knowledge:
 | `architecture.md` | Layer structure, dependencies |
 | `conventions.md` | Naming, code style, TDD |
 
+## Development Workflow
+
+```
+/clarify → Plan Mode → /implement → /verify → /review → /wrap
+```
+
+| Skill | Purpose |
+|-------|---------|
+| `/clarify` | Requirements clarification → auto Plan Mode |
+| `/implement` | TDD (RED→GREEN→REFACTOR) |
+| `/verify` | Self-healing test/clippy/fmt loop |
+| `/review` | Negative perspective code review |
+| `/wrap` | Session wrap-up, doc updates |
+
 ## Performance Goals
 
 | Metric | Target | vs ccusage |
