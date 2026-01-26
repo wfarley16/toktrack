@@ -1,0 +1,58 @@
+[package]
+name = "toktrack"
+version = "0.1.0"
+edition = "2021"
+description = "Ultra-fast AI CLI token usage tracker"
+license = "MIT"
+repository = "https://github.com/jaehojang/toktrack"
+keywords = ["cli", "token", "usage", "claude", "ai"]
+categories = ["command-line-utilities"]
+
+[dependencies]
+# JSON parsing (SIMD optimized)
+simd-json = "0.14"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# TUI
+ratatui = "0.29"
+crossterm = "0.28"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Async & Parallel
+rayon = "1.10"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs"] }
+
+# Date/Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Paths
+directories = "5"
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# HTTP (for LiteLLM pricing)
+reqwest = { version = "0.12", features = ["json"] }
+
+[dev-dependencies]
+# Snapshot testing
+insta = { version = "1.41", features = ["json"] }
+
+# Benchmarking
+criterion = { version = "0.5", features = ["html_reports"] }
+
+# Temp files for tests
+tempfile = "3"
+
+[[bench]]
+name = "parser_bench"
+harness = false
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

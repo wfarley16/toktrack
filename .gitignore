@@ -1,0 +1,22 @@
+# Build
+/target/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Planning docs (private)
+docs/planning/
+
+# Test snapshots (review before commit)
+*.snap.new
+
+# Local config
+.env
+.env.local
+
+# Benchmark results
+*.bench
