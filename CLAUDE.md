@@ -79,6 +79,18 @@ cargo insta review      # Snapshot review
 cargo bench             # criterion benchmarks
 ```
 
+### Pre-commit Hooks
+
+```bash
+make setup              # Configure git hooks (one-time)
+make check              # Run all checks manually
+```
+
+Checks run before each commit:
+1. `cargo fmt --check` - Formatting
+2. `cargo clippy` - Linting
+3. `cargo test` - Tests
+
 ## Key Design Decisions
 
 ### 1. CLIParser Trait
