@@ -24,6 +24,7 @@ Git Status → Doc Check → User Selection → Execute
    | trait/타입 | architecture.md | 테이블/코드블록 |
    | 컨벤션 | conventions.md | 테이블 DSL |
    | 모듈 | CLAUDE.md | 간결한 설명 |
+   | 태스크 완료 | docs/planning/*.md | 체크박스 [x] |
 
 3. **User Selection**: AskUserQuestion
 4. **Execute**: 선택 항목 실행

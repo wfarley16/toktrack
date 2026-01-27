@@ -27,7 +27,9 @@ cargo build --release
 - After implement completes → auto-call `/verify`
 - After verify passes → auto-call `/review`
 - After review passes → auto-call `/wrap`
-- `/wrap` must update `ai-context/*.md` if architecture/conventions changed
+- `/wrap` must:
+  - Update `ai-context/*.md` if architecture/conventions changed
+  - Update `docs/planning/*.md` task checkboxes for completed work
 
 See `.claude/skills/` for skill details.
 
