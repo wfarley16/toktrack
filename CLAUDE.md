@@ -19,8 +19,10 @@ cargo build --release
 ## Dev Workflow (MUST FOLLOW)
 
 ```
-/clarify → Plan Mode → /implement → /verify → /review → /wrap
+/next → /clarify → Plan Mode → /implement → /verify → /review → /wrap
 ```
+
+**Session start**: Run `/next` to see current progress and next task.
 
 **Auto-transition rules**:
 - After plan approval → immediately run `/implement` skill
