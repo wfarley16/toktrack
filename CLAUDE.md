@@ -26,6 +26,8 @@ cargo build --release
 - After plan approval → immediately run `/implement` skill
 - After implement completes → auto-call `/verify`
 - After verify passes → auto-call `/review`
+- After review passes → auto-call `/wrap`
+- `/wrap` must update `ai-context/*.md` if architecture/conventions changed
 
 See `.claude/skills/` for skill details.
 
