@@ -21,3 +21,6 @@ Record Original → AskUserQuestion → Summary → EnterPlanMode()
 - 가정 금지 → 질문
 - TDD 가능 수준까지 구체화
 - clarify 후 반드시 Plan Mode 진입
+
+## After Plan Approval
+Plan이 승인되면 즉시 `/implement` 스킬 호출하여 구현 시작
