@@ -16,11 +16,16 @@ cargo build --release
 | [architecture.md](.claude/ai-context/architecture.md) | Layers, paths, traits, data flow |
 | [conventions.md](.claude/ai-context/conventions.md) | Naming, TDD, error handling, commits |
 
-## Dev Workflow
+## Dev Workflow (MUST FOLLOW)
 
 ```
 /clarify → Plan Mode → /implement → /verify → /review → /wrap
 ```
+
+**Auto-transition rules**:
+- After plan approval → immediately run `/implement` skill
+- After implement completes → auto-call `/verify`
+- After verify passes → auto-call `/review`
 
 See `.claude/skills/` for skill details.
 
