@@ -49,14 +49,14 @@ impl HeatmapIntensity {
         }
     }
 
-    /// Get color for this intensity (GitHub-style green gradient)
+    /// Get color for this intensity (GitHub-style green gradient using ANSI 256)
     pub fn color(self) -> Color {
         match self {
-            Self::None => Color::Rgb(33, 38, 45), // #21262d (empty cell - dark gray)
-            Self::Low => Color::Rgb(14, 68, 41),  // #0e4429 (light green)
-            Self::Medium => Color::Rgb(0, 109, 50), // #006d32 (medium green)
-            Self::High => Color::Rgb(38, 166, 65), // #26a641 (bright green)
-            Self::Max => Color::Rgb(57, 211, 83), // #39d353 (brightest green)
+            Self::None => Color::Indexed(236),  // Dark gray (empty cell)
+            Self::Low => Color::Indexed(22),    // DarkGreen
+            Self::Medium => Color::Indexed(28), // Green4
+            Self::High => Color::Indexed(34),   // Green3
+            Self::Max => Color::Indexed(40),    // Green3 (bright)
         }
     }
 }
@@ -221,9 +221,15 @@ impl Heatmap {
         }
     }
 
+    /// Calculate x_offset for centering the heatmap
+    fn calculate_x_offset(&self, area: Rect) -> u16 {
+        let heatmap_width = LABEL_WIDTH + 1 + (self.weeks_to_show as u16 * CELL_WIDTH);
+        area.width.saturating_sub(heatmap_width) / 2
+    }
+
     /// Render the top border row: ┌──┬──┬──┐
-    fn render_top_border(&self, area: Rect, buf: &mut Buffer, weeks: usize) {
-        let start_x = area.x + LABEL_WIDTH;
+    fn render_top_border(&self, area: Rect, buf: &mut Buffer, weeks: usize, x_offset: u16) {
+        let start_x = area.x + x_offset + LABEL_WIDTH;
         let y = area.y;
         let max_x = area.x + area.width;
         let border_style = Style::default().fg(Color::DarkGray);
@@ -258,13 +264,19 @@ impl Heatmap {
         y: u16,
         day_idx: usize,
         label: &str,
+        x_offset: u16,
     ) {
-        let start_x = area.x + LABEL_WIDTH;
+        let start_x = area.x + x_offset + LABEL_WIDTH;
         let max_x = area.x + area.width;
         let border_style = Style::default().fg(Color::DarkGray);
 
         // Draw weekday label
-        buf.set_string(area.x, y, label, Style::default().fg(Color::DarkGray));
+        buf.set_string(
+            area.x + x_offset,
+            y,
+            label,
+            Style::default().fg(Color::DarkGray),
+        );
 
         // Left border
         if start_x < max_x {
@@ -294,8 +306,15 @@ impl Heatmap {
     }
 
     /// Render a separator row: ├──┼──┼──┤
-    fn render_separator_row(&self, area: Rect, buf: &mut Buffer, y: u16, weeks: usize) {
-        let start_x = area.x + LABEL_WIDTH;
+    fn render_separator_row(
+        &self,
+        area: Rect,
+        buf: &mut Buffer,
+        y: u16,
+        weeks: usize,
+        x_offset: u16,
+    ) {
+        let start_x = area.x + x_offset + LABEL_WIDTH;
         let max_x = area.x + area.width;
         let border_style = Style::default().fg(Color::DarkGray);
 
@@ -322,8 +341,15 @@ impl Heatmap {
     }
 
     /// Render the bottom border row: └──┴──┴──┘
-    fn render_bottom_border(&self, area: Rect, buf: &mut Buffer, y: u16, weeks: usize) {
-        let start_x = area.x + LABEL_WIDTH;
+    fn render_bottom_border(
+        &self,
+        area: Rect,
+        buf: &mut Buffer,
+        y: u16,
+        weeks: usize,
+        x_offset: u16,
+    ) {
+        let start_x = area.x + x_offset + LABEL_WIDTH;
         let max_x = area.x + area.width;
         let border_style = Style::default().fg(Color::DarkGray);
 
@@ -364,10 +390,11 @@ const DISPLAY_ROWS: [(usize, &str); 7] = [
 impl Widget for Heatmap {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let weeks = self.weeks_to_show;
-        let start_x = area.x + LABEL_WIDTH;
+        let x_offset = self.calculate_x_offset(area);
+        let start_x = area.x + x_offset + LABEL_WIDTH;
 
         // Row 0: Top border (┌──┬──┬──┐)
-        self.render_top_border(area, buf, weeks);
+        self.render_top_border(area, buf, weeks, x_offset);
 
         // Rows 1-13: Alternating content and separator
         for (day_idx, (_, label)) in DISPLAY_ROWS.iter().enumerate() {
@@ -377,15 +404,15 @@ impl Widget for Heatmap {
             }
 
             // Content row: Mon │██│██│██│
-            self.render_content_row(area, buf, content_y, day_idx, label);
+            self.render_content_row(area, buf, content_y, day_idx, label, x_offset);
 
             // Separator row: ├──┼──┼──┤ (or └──┴──┴──┘ for last)
             let separator_y = content_y + 1;
             if separator_y < area.y + area.height {
                 if day_idx < 6 {
-                    self.render_separator_row(area, buf, separator_y, weeks);
+                    self.render_separator_row(area, buf, separator_y, weeks, x_offset);
                 } else {
-                    self.render_bottom_border(area, buf, separator_y, weeks);
+                    self.render_bottom_border(area, buf, separator_y, weeks, x_offset);
                 }
             }
         }
@@ -464,12 +491,12 @@ mod tests {
 
     #[test]
     fn test_intensity_color() {
-        // GitHub-style green gradient
-        assert_eq!(HeatmapIntensity::None.color(), Color::Rgb(33, 38, 45)); // empty cell
-        assert_eq!(HeatmapIntensity::Low.color(), Color::Rgb(14, 68, 41)); // light green
-        assert_eq!(HeatmapIntensity::Medium.color(), Color::Rgb(0, 109, 50)); // medium green
-        assert_eq!(HeatmapIntensity::High.color(), Color::Rgb(38, 166, 65)); // bright green
-        assert_eq!(HeatmapIntensity::Max.color(), Color::Rgb(57, 211, 83)); // brightest green
+        // GitHub-style green gradient using ANSI 256 colors
+        assert_eq!(HeatmapIntensity::None.color(), Color::Indexed(236)); // dark gray
+        assert_eq!(HeatmapIntensity::Low.color(), Color::Indexed(22)); // DarkGreen
+        assert_eq!(HeatmapIntensity::Medium.color(), Color::Indexed(28)); // Green4
+        assert_eq!(HeatmapIntensity::High.color(), Color::Indexed(34)); // Green3
+        assert_eq!(HeatmapIntensity::Max.color(), Color::Indexed(40)); // Green3 (bright)
     }
 
     // ========== calculate_percentiles tests ==========
@@ -694,7 +721,8 @@ mod tests {
     fn test_render_top_border_pattern() {
         let (heatmap, area, mut buf) = create_test_heatmap(3);
 
-        heatmap.render_top_border(area, &mut buf, 3);
+        // x_offset is 0 when buffer width equals heatmap width
+        heatmap.render_top_border(area, &mut buf, 3, 0);
 
         // Top border at y=0: "    ┌──┬──┬──┐"
         // Position: label(4) + pattern
@@ -714,7 +742,8 @@ mod tests {
     fn test_render_separator_row_pattern() {
         let (heatmap, area, mut buf) = create_test_heatmap(3);
 
-        heatmap.render_separator_row(area, &mut buf, 2, 3);
+        // x_offset is 0 when buffer width equals heatmap width
+        heatmap.render_separator_row(area, &mut buf, 2, 3, 0);
 
         // Separator at y=2: "    ├──┼──┼──┤"
         let start_x = LABEL_WIDTH as usize;
@@ -738,7 +767,8 @@ mod tests {
     fn test_render_bottom_border_pattern() {
         let (heatmap, area, mut buf) = create_test_heatmap(3);
 
-        heatmap.render_bottom_border(area, &mut buf, 14, 3);
+        // x_offset is 0 when buffer width equals heatmap width
+        heatmap.render_bottom_border(area, &mut buf, 14, 3, 0);
 
         // Bottom border: "    └──┴──┴──┘"
         let start_x = LABEL_WIDTH as usize;
@@ -762,7 +792,8 @@ mod tests {
     fn test_render_content_row_has_vertical_borders() {
         let (heatmap, area, mut buf) = create_test_heatmap(3);
 
-        heatmap.render_content_row(area, &mut buf, 1, 0, "Mon");
+        // x_offset is 0 when buffer width equals heatmap width
+        heatmap.render_content_row(area, &mut buf, 1, 0, "Mon", 0);
 
         let start_x = LABEL_WIDTH as usize;
 
@@ -780,7 +811,8 @@ mod tests {
     fn test_render_content_row_has_label() {
         let (heatmap, area, mut buf) = create_test_heatmap(3);
 
-        heatmap.render_content_row(area, &mut buf, 1, 0, "Mon");
+        // x_offset is 0 when buffer width equals heatmap width
+        heatmap.render_content_row(area, &mut buf, 1, 0, "Mon", 0);
 
         // Check label at x=0
         let cell = buf.cell((0, 1)).unwrap();
