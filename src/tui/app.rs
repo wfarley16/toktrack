@@ -1,5 +1,7 @@
 //! Application state and event loop
 
+use std::sync::mpsc;
+use std::thread;
 use std::time::Duration;
 
 use chrono::{Local, NaiveDate};
@@ -12,7 +14,7 @@ use ratatui::{
     DefaultTerminal, Frame,
 };
 
-use crate::parsers::{CLIParser, ClaudeCodeParser};
+use crate::parsers::ParserRegistry;
 use crate::services::{Aggregator, PricingService};
 use crate::types::{CacheWarning, StatsData, TotalSummary};
 
@@ -83,16 +85,24 @@ impl App {
             stage: LoadingStage::Parsing,
         };
 
-        let parser = ClaudeCodeParser::new();
-        let entries = match parser.parse_all() {
-            Ok(e) => e,
-            Err(e) => {
-                self.state = AppState::Error {
-                    message: format!("Failed to parse data: {}", e),
-                };
-                return;
+        let registry = ParserRegistry::new();
+        let mut entries = Vec::new();
+
+        for parser in registry.parsers() {
+            match parser.parse_all() {
+                Ok(parser_entries) => entries.extend(parser_entries),
+                Err(e) => {
+                    eprintln!("[toktrack] Warning: {} failed: {}", parser.name(), e);
+                }
             }
-        };
+        }
+
+        if entries.is_empty() {
+            self.state = AppState::Error {
+                message: "No usage data found from any CLI".to_string(),
+            };
+            return;
+        }
 
         // Calculate costs using PricingService (graceful fallback if unavailable)
         let pricing = PricingService::new().ok();
@@ -302,17 +312,103 @@ pub fn run() -> anyhow::Result<()> {
     result
 }
 
+/// Load data synchronously (extracted for background thread)
+fn load_data_sync() -> Result<Box<AppData>, String> {
+    let registry = ParserRegistry::new();
+    let mut entries = Vec::new();
+
+    for parser in registry.parsers() {
+        match parser.parse_all() {
+            Ok(parser_entries) => entries.extend(parser_entries),
+            Err(e) => {
+                eprintln!("[toktrack] Warning: {} failed: {}", parser.name(), e);
+            }
+        }
+    }
+
+    if entries.is_empty() {
+        return Err("No usage data found from any CLI".to_string());
+    }
+
+    // Calculate costs using PricingService (graceful fallback if unavailable)
+    let pricing = PricingService::new().ok();
+    let entries: Vec<_> = entries
+        .into_iter()
+        .map(|mut entry| {
+            if entry.cost_usd.is_none() {
+                if let Some(ref pricing) = pricing {
+                    entry.cost_usd = Some(pricing.calculate_cost(&entry));
+                }
+            }
+            entry
+        })
+        .collect();
+
+    // Get total summary
+    let total = Aggregator::total(&entries);
+
+    // Get daily summaries
+    let daily_summaries = Aggregator::daily(&entries);
+
+    // Convert to daily tokens for heatmap (all tokens including cache)
+    let daily_tokens: Vec<(NaiveDate, u64)> = daily_summaries
+        .iter()
+        .map(|d| {
+            (
+                d.date,
+                d.total_input_tokens
+                    + d.total_output_tokens
+                    + d.total_cache_read_tokens
+                    + d.total_cache_creation_tokens,
+            )
+        })
+        .collect();
+
+    // Get model breakdown for Models view
+    let model_map = Aggregator::by_model(&entries);
+    let models_data = ModelsData::from_model_usage(&model_map);
+
+    // Create StatsData for Stats view (must be before daily_data since summaries are moved)
+    let stats_data = StatsData::from_daily_summaries(&daily_summaries);
+
+    // Create DailyData for Daily view (summaries are moved here)
+    let daily_data = DailyData::from_daily_summaries(daily_summaries);
+
+    Ok(Box::new(AppData {
+        total,
+        daily_tokens,
+        models_data,
+        daily_data,
+        stats_data,
+        cache_warning: None,
+    }))
+}
+
 fn run_app(terminal: &mut DefaultTerminal) -> anyhow::Result<()> {
     let mut app = App::new();
 
-    // Load data (blocking)
-    app.load_data();
+    // Spawn background thread for data loading
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        let result = load_data_sync();
+        let _ = tx.send(result);
+    });
 
     loop {
         terminal.draw(|frame| app.draw(frame))?;
 
         if app.should_quit() {
             break;
+        }
+
+        // Check for data loading completion (non-blocking)
+        if matches!(app.state, AppState::Loading { .. }) {
+            if let Ok(result) = rx.try_recv() {
+                match result {
+                    Ok(data) => app.state = AppState::Ready { data },
+                    Err(message) => app.state = AppState::Error { message },
+                }
+            }
         }
 
         // Poll for events with 100ms timeout for spinner animation
