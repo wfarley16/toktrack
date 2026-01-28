@@ -12,6 +12,7 @@ const SPINNER_FRAMES: &[char] = &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦
 
 /// App branding
 const APP_NAME: &str = "toktrack";
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 const TAGLINE: &str = "Ultra-fast LLM token tracker";
 
 /// Loading stage for display
@@ -63,13 +64,14 @@ impl Widget for Spinner {
         // Calculate center Y (4 lines: name, tagline, empty, spinner)
         let center_y = area.y + area.height / 2;
 
-        // App name (bold, white)
+        // App name with version (bold, white)
+        let name_with_version = format!("{} v{}", APP_NAME, VERSION);
         let name_y = center_y.saturating_sub(2);
-        let name_x = area.x + (area.width.saturating_sub(APP_NAME.len() as u16)) / 2;
+        let name_x = area.x + (area.width.saturating_sub(name_with_version.len() as u16)) / 2;
         buf.set_string(
             name_x,
             name_y,
-            APP_NAME,
+            &name_with_version,
             Style::default()
                 .fg(Color::White)
                 .add_modifier(Modifier::BOLD),

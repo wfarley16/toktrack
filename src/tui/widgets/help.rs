@@ -8,6 +8,9 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph, Widget},
 };
 
+/// Version from Cargo.toml
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 /// Width and height of the help popup
 const POPUP_WIDTH: u16 = 42;
 const POPUP_HEIGHT: u16 = 16;
@@ -45,8 +48,9 @@ impl Widget for HelpPopup {
         Clear.render(area, buf);
 
         // Create block with border
+        let title = format!(" toktrack v{} ", VERSION);
         let block = Block::default()
-            .title(" Help ")
+            .title(title)
             .title_alignment(Alignment::Center)
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Cyan));
