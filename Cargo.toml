@@ -1,6 +1,6 @@
 [package]
 name = "toktrack"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Ultra-fast AI CLI token usage tracker"
 license = "MIT"
@@ -36,8 +36,8 @@ glob = "0.3"
 thiserror = "2"
 anyhow = "1"
 
-# HTTP (for LiteLLM pricing)
-reqwest = { version = "0.12", features = ["json", "blocking"] }
+# HTTP (for LiteLLM pricing) - rustls for cross-compile compatibility
+reqwest = { version = "0.12", default-features = false, features = ["json", "blocking", "rustls-tls"] }
 
 # File locking (for cache race condition prevention)
 fs2 = "0.4"

@@ -9,11 +9,11 @@
 - [x] CLAUDE.md 작성
 - [x] ai-context JSON 파일 작성
 
-### Task 0.2: 개발 환경 설정 (partial)
+### Task 0.2: 개발 환경 설정 ✅
 - [x] GitHub 저장소 생성
 - [x] CI/CD 워크플로우 (lint, test, build)
-- [ ] semantic-release 설정
-- [ ] 크로스 컴파일 설정
+- [x] release-please 자동 릴리즈 설정
+- [x] 크로스 컴파일 설정 (release.yml)
 
 ### Task 0.3: 의존성 추가 ✅
 ```toml
@@ -383,10 +383,10 @@ jobs:
           files: toktrack-*/*
 ```
 
-### Task 7.5: GitHub Release
-- v0.1.0 릴리즈
-- 바이너리 첨부
-- npm publish
+### Task 7.5: GitHub Release ✅
+- [x] v0.1.0 태그 생성 및 푸시
+- [x] release.yml로 자동 바이너리 빌드/첨부
+- [x] npm publish 자동화
 
 ---
 
