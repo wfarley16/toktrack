@@ -10,7 +10,35 @@ use ratatui::{
 
 use super::overview::format_number;
 use super::tabs::{Tab, TabBar};
+use crate::services::Aggregator;
 use crate::types::DailySummary;
+
+/// View mode within the Daily tab
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DailyViewMode {
+    #[default]
+    Daily,
+    Weekly,
+    Monthly,
+}
+
+impl DailyViewMode {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Daily => "Daily",
+            Self::Weekly => "Weekly",
+            Self::Monthly => "Monthly",
+        }
+    }
+
+    pub fn date_column_label(&self) -> &'static str {
+        match self {
+            Self::Daily => "Date",
+            Self::Weekly => "Week",
+            Self::Monthly => "Month",
+        }
+    }
+}
 
 /// Format a sparkline bar based on token ratio
 /// Example: tokens=500, max=1000, width=8 → "████░░░░"
@@ -25,35 +53,63 @@ pub fn format_sparkline(tokens: u64, max: u64, width: usize) -> String {
     format!("{}{}", "▓".repeat(filled), "░".repeat(empty))
 }
 
-/// Data for the daily view
+/// Data for the daily view (holds daily, weekly, and monthly aggregations)
 #[derive(Debug)]
 pub struct DailyData {
     /// Daily summaries sorted by date ascending (oldest first)
-    pub summaries: Vec<DailySummary>,
-    /// Maximum total tokens across all days (for sparkline scaling)
-    pub max_tokens: u64,
+    pub daily_summaries: Vec<DailySummary>,
+    pub daily_max_tokens: u64,
+    pub weekly_summaries: Vec<DailySummary>,
+    pub weekly_max_tokens: u64,
+    pub monthly_summaries: Vec<DailySummary>,
+    pub monthly_max_tokens: u64,
 }
 
 impl DailyData {
     /// Create DailyData from aggregated daily summaries
     /// Expects summaries in ascending order (from Aggregator::daily)
     pub fn from_daily_summaries(summaries: Vec<DailySummary>) -> Self {
-        // Calculate max tokens
-        let max_tokens = summaries
-            .iter()
-            .map(|s| {
-                s.total_input_tokens
-                    + s.total_output_tokens
-                    + s.total_cache_read_tokens
-                    + s.total_cache_creation_tokens
-            })
-            .max()
-            .unwrap_or(0);
+        let calc_max = |s: &[DailySummary]| -> u64 {
+            s.iter()
+                .map(|d| {
+                    d.total_input_tokens
+                        + d.total_output_tokens
+                        + d.total_cache_read_tokens
+                        + d.total_cache_creation_tokens
+                })
+                .max()
+                .unwrap_or(0)
+        };
+
+        let weekly_summaries = Aggregator::weekly(&summaries);
+        let monthly_summaries = Aggregator::monthly(&summaries);
+
+        let daily_max_tokens = calc_max(&summaries);
+        let weekly_max_tokens = calc_max(&weekly_summaries);
+        let monthly_max_tokens = calc_max(&monthly_summaries);
 
         Self {
-            summaries,
-            max_tokens,
+            daily_summaries: summaries,
+            daily_max_tokens,
+            weekly_summaries,
+            weekly_max_tokens,
+            monthly_summaries,
+            monthly_max_tokens,
         }
+    }
+
+    /// Get summaries and max_tokens for the given view mode
+    pub fn for_mode(&self, mode: DailyViewMode) -> (&[DailySummary], u64) {
+        match mode {
+            DailyViewMode::Daily => (&self.daily_summaries, self.daily_max_tokens),
+            DailyViewMode::Weekly => (&self.weekly_summaries, self.weekly_max_tokens),
+            DailyViewMode::Monthly => (&self.monthly_summaries, self.monthly_max_tokens),
+        }
+    }
+
+    /// Calculate maximum scroll offset for a given item count
+    pub fn max_scroll_offset_for(count: usize) -> usize {
+        count.saturating_sub(VISIBLE_ROWS)
     }
 }
 
@@ -71,14 +127,16 @@ pub struct DailyView<'a> {
     data: &'a DailyData,
     scroll_offset: usize,
     selected_tab: Tab,
+    view_mode: DailyViewMode,
 }
 
 impl<'a> DailyView<'a> {
-    pub fn new(data: &'a DailyData, scroll_offset: usize) -> Self {
+    pub fn new(data: &'a DailyData, scroll_offset: usize, view_mode: DailyViewMode) -> Self {
         Self {
             data,
             scroll_offset,
             selected_tab: Tab::Daily,
+            view_mode,
         }
     }
 
@@ -87,9 +145,10 @@ impl<'a> DailyView<'a> {
         self
     }
 
-    /// Calculate the maximum valid scroll offset
-    pub fn max_scroll_offset(data: &DailyData) -> usize {
-        data.summaries.len().saturating_sub(VISIBLE_ROWS)
+    /// Calculate the maximum valid scroll offset for the given mode
+    pub fn max_scroll_offset(data: &DailyData, mode: DailyViewMode) -> usize {
+        let (summaries, _) = data.for_mode(mode);
+        DailyData::max_scroll_offset_for(summaries.len())
     }
 }
 
@@ -105,12 +164,15 @@ impl Widget for DailyView<'_> {
             height: area.height,
         };
 
+        let (summaries, _) = self.data.for_mode(self.view_mode);
+
         // Calculate layout
-        let visible_rows = self.data.summaries.len().min(VISIBLE_ROWS) as u16;
+        let visible_rows = summaries.len().min(VISIBLE_ROWS) as u16;
         let chunks = Layout::vertical([
             Constraint::Length(1),            // Top padding
             Constraint::Length(1),            // Tabs
             Constraint::Length(1),            // Separator
+            Constraint::Length(1),            // Mode indicator
             Constraint::Length(1),            // Header
             Constraint::Length(visible_rows), // Daily rows
             Constraint::Length(1),            // Separator
@@ -125,17 +187,20 @@ impl Widget for DailyView<'_> {
         // Render separator
         self.render_separator(chunks[2], buf);
 
+        // Render mode indicator
+        self.render_mode_indicator(chunks[3], buf);
+
         // Render header
-        self.render_header(chunks[3], buf);
+        self.render_header(chunks[4], buf);
 
         // Render daily rows
-        self.render_daily_rows(chunks[4], buf);
+        self.render_daily_rows(chunks[5], buf);
 
         // Render separator
-        self.render_separator(chunks[5], buf);
+        self.render_separator(chunks[6], buf);
 
         // Render keybindings
-        self.render_keybindings(chunks[6], buf);
+        self.render_keybindings(chunks[7], buf);
     }
 }
 
@@ -155,13 +220,42 @@ impl DailyView<'_> {
         buf.set_string(area.x, area.y, &line, Style::default().fg(Color::DarkGray));
     }
 
+    fn render_mode_indicator(&self, area: Rect, buf: &mut Buffer) {
+        let modes = [
+            ('d', DailyViewMode::Daily),
+            ('w', DailyViewMode::Weekly),
+            ('m', DailyViewMode::Monthly),
+        ];
+
+        let mut spans = Vec::new();
+        for (i, (key, mode)) in modes.iter().enumerate() {
+            if i > 0 {
+                spans.push(Span::raw("  "));
+            }
+            let is_active = *mode == self.view_mode;
+            let style = if is_active {
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
+            spans.push(Span::styled(format!("{}:{}", key, mode.label()), style));
+        }
+
+        let indicator = Paragraph::new(Line::from(spans)).alignment(Alignment::Center);
+        indicator.render(area, buf);
+    }
+
     fn render_header(&self, area: Rect, buf: &mut Buffer) {
         let offset = self.calculate_table_offset(area.width);
+
+        let date_label = self.view_mode.date_column_label();
 
         // Column widths: Date(12), Model(25), Input(18), Output(18), Cache(18), Total(18), Cost(12), Usage(18)
         let header = Line::from(vec![
             Span::styled(
-                format!("{:<12}", "Date"),
+                format!("{:<12}", date_label),
                 Style::default()
                     .fg(Color::White)
                     .add_modifier(Modifier::BOLD),
@@ -224,10 +318,11 @@ impl DailyView<'_> {
 
     fn render_daily_rows(&self, area: Rect, buf: &mut Buffer) {
         let offset = self.calculate_table_offset(area.width);
+        let (summaries, max_tokens) = self.data.for_mode(self.view_mode);
         let start = self.scroll_offset;
-        let end = (start + area.height as usize).min(self.data.summaries.len());
+        let end = (start + area.height as usize).min(summaries.len());
 
-        for (i, summary) in self.data.summaries[start..end].iter().enumerate() {
+        for (i, summary) in summaries[start..end].iter().enumerate() {
             let y = area.y + i as u16;
             if y >= area.y + area.height {
                 break;
@@ -242,11 +337,18 @@ impl DailyView<'_> {
                 },
                 buf,
                 summary,
+                max_tokens,
             );
         }
     }
 
-    fn render_daily_row(&self, area: Rect, buf: &mut Buffer, summary: &DailySummary) {
+    fn render_daily_row(
+        &self,
+        area: Rect,
+        buf: &mut Buffer,
+        summary: &DailySummary,
+        max_tokens: u64,
+    ) {
         let total_tokens = summary.total_input_tokens
             + summary.total_output_tokens
             + summary.total_cache_read_tokens
@@ -275,11 +377,19 @@ impl DailyView<'_> {
             model_name
         };
 
-        let sparkline = format_sparkline(total_tokens, self.data.max_tokens, 14);
+        let sparkline = format_sparkline(total_tokens, max_tokens, 14);
+
+        // Format date based on view mode
+        let date_str = match self.view_mode {
+            DailyViewMode::Daily | DailyViewMode::Weekly => {
+                summary.date.format("%Y-%m-%d").to_string()
+            }
+            DailyViewMode::Monthly => summary.date.format("%Y-%m").to_string(),
+        };
 
         let row = Line::from(vec![
             Span::styled(
-                format!("{:<12}", summary.date.format("%Y-%m-%d")),
+                format!("{:<12}", date_str),
                 Style::default().fg(Color::Yellow),
             ),
             Span::styled(
@@ -320,6 +430,9 @@ impl DailyView<'_> {
         let bindings = Paragraph::new(Line::from(vec![
             Span::styled("↑↓", Style::default().fg(Color::Cyan)),
             Span::styled(": Scroll", Style::default().fg(Color::DarkGray)),
+            Span::raw("  "),
+            Span::styled("d/w/m", Style::default().fg(Color::Cyan)),
+            Span::styled(": View mode", Style::default().fg(Color::DarkGray)),
             Span::raw("  "),
             Span::styled("q", Style::default().fg(Color::Cyan)),
             Span::styled(": Quit", Style::default().fg(Color::DarkGray)),
@@ -403,8 +516,8 @@ mod tests {
     #[test]
     fn test_daily_data_empty() {
         let data = DailyData::from_daily_summaries(vec![]);
-        assert!(data.summaries.is_empty());
-        assert_eq!(data.max_tokens, 0);
+        assert!(data.daily_summaries.is_empty());
+        assert_eq!(data.daily_max_tokens, 0);
     }
 
     #[test]
@@ -418,11 +531,11 @@ mod tests {
 
         let data = DailyData::from_daily_summaries(summaries);
 
-        assert_eq!(data.summaries.len(), 3);
+        assert_eq!(data.daily_summaries.len(), 3);
         // Should remain ascending (oldest first)
-        assert_eq!(data.summaries[0].date.to_string(), "2024-01-10");
-        assert_eq!(data.summaries[1].date.to_string(), "2024-01-15");
-        assert_eq!(data.summaries[2].date.to_string(), "2024-01-20");
+        assert_eq!(data.daily_summaries[0].date.to_string(), "2024-01-10");
+        assert_eq!(data.daily_summaries[1].date.to_string(), "2024-01-15");
+        assert_eq!(data.daily_summaries[2].date.to_string(), "2024-01-20");
     }
 
     #[test]
@@ -435,7 +548,7 @@ mod tests {
 
         let data = DailyData::from_daily_summaries(summaries);
 
-        assert_eq!(data.max_tokens, 495);
+        assert_eq!(data.daily_max_tokens, 495);
     }
 
     // ========== DailyView scroll tests ==========
@@ -443,7 +556,7 @@ mod tests {
     #[test]
     fn test_daily_view_scroll_bounds_empty() {
         let data = DailyData::from_daily_summaries(vec![]);
-        assert_eq!(DailyView::max_scroll_offset(&data), 0);
+        assert_eq!(DailyView::max_scroll_offset(&data, DailyViewMode::Daily), 0);
     }
 
     #[test]
@@ -454,7 +567,7 @@ mod tests {
         ];
         let data = DailyData::from_daily_summaries(summaries);
         // 2 items < VISIBLE_ROWS (15), so max offset is 0
-        assert_eq!(DailyView::max_scroll_offset(&data), 0);
+        assert_eq!(DailyView::max_scroll_offset(&data, DailyViewMode::Daily), 0);
     }
 
     #[test]
@@ -464,6 +577,56 @@ mod tests {
             .collect();
         let data = DailyData::from_daily_summaries(summaries);
         // 20 items, VISIBLE_ROWS = 15, so max offset = 5
-        assert_eq!(DailyView::max_scroll_offset(&data), 5);
+        assert_eq!(DailyView::max_scroll_offset(&data, DailyViewMode::Daily), 5);
+    }
+
+    // ========== DailyData multi-mode tests ==========
+
+    #[test]
+    fn test_daily_data_has_all_modes() {
+        // 3 days across 2 weeks, 1 month
+        let summaries = vec![
+            make_daily_summary(2025, 1, 13, 100, 50, 0, 0, 0.01), // Mon, week of Jan 12
+            make_daily_summary(2025, 1, 15, 200, 100, 0, 0, 0.02), // Wed, week of Jan 12
+            make_daily_summary(2025, 1, 20, 300, 150, 0, 0, 0.03), // Mon, week of Jan 19
+        ];
+        let data = DailyData::from_daily_summaries(summaries);
+
+        assert_eq!(data.daily_summaries.len(), 3);
+        assert_eq!(data.weekly_summaries.len(), 2);
+        assert_eq!(data.monthly_summaries.len(), 1);
+    }
+
+    #[test]
+    fn test_for_mode_returns_correct_data() {
+        let summaries = vec![
+            make_daily_summary(2025, 1, 13, 100, 50, 0, 0, 0.01),
+            make_daily_summary(2025, 1, 20, 200, 100, 0, 0, 0.02),
+            make_daily_summary(2025, 2, 3, 300, 150, 0, 0, 0.03),
+        ];
+        let data = DailyData::from_daily_summaries(summaries);
+
+        let (daily, _) = data.for_mode(DailyViewMode::Daily);
+        assert_eq!(daily.len(), 3);
+
+        let (weekly, _) = data.for_mode(DailyViewMode::Weekly);
+        assert_eq!(weekly.len(), 3); // 3 different weeks
+
+        let (monthly, _) = data.for_mode(DailyViewMode::Monthly);
+        assert_eq!(monthly.len(), 2); // Jan and Feb
+    }
+
+    #[test]
+    fn test_view_mode_labels() {
+        assert_eq!(DailyViewMode::Daily.label(), "Daily");
+        assert_eq!(DailyViewMode::Weekly.label(), "Weekly");
+        assert_eq!(DailyViewMode::Monthly.label(), "Monthly");
+    }
+
+    #[test]
+    fn test_view_mode_date_column_labels() {
+        assert_eq!(DailyViewMode::Daily.date_column_label(), "Date");
+        assert_eq!(DailyViewMode::Weekly.date_column_label(), "Week");
+        assert_eq!(DailyViewMode::Monthly.date_column_label(), "Month");
     }
 }

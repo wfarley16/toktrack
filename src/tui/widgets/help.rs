@@ -13,7 +13,7 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Width and height of the help popup
 const POPUP_WIDTH: u16 = 42;
-const POPUP_HEIGHT: u16 = 16;
+const POPUP_HEIGHT: u16 = 17;
 
 /// Help popup widget showing keyboard shortcuts
 pub struct HelpPopup;
@@ -60,19 +60,20 @@ impl Widget for HelpPopup {
 
         // Layout for content
         let chunks = Layout::vertical([
-            Constraint::Length(1), // Padding
-            Constraint::Length(1), // Navigation header
-            Constraint::Length(1), // Separator
-            Constraint::Length(1), // Tab/Shift+Tab
-            Constraint::Length(1), // 1-4
-            Constraint::Length(1), // Up/Down
-            Constraint::Length(1), // Padding
-            Constraint::Length(1), // General header
-            Constraint::Length(1), // Separator
-            Constraint::Length(1), // q/Esc
-            Constraint::Length(1), // ?
-            Constraint::Length(1), // Padding
-            Constraint::Length(1), // Close hint
+            Constraint::Length(1), // [0] Padding
+            Constraint::Length(1), // [1] Navigation header
+            Constraint::Length(1), // [2] Separator
+            Constraint::Length(1), // [3] Tab/Shift+Tab
+            Constraint::Length(1), // [4] 1-4
+            Constraint::Length(1), // [5] Up/Down
+            Constraint::Length(1), // [6] d/w/m
+            Constraint::Length(1), // [7] Padding
+            Constraint::Length(1), // [8] General header
+            Constraint::Length(1), // [9] Separator
+            Constraint::Length(1), // [10] q/Esc
+            Constraint::Length(1), // [11] ?
+            Constraint::Length(1), // [12] Padding
+            Constraint::Length(1), // [13] Close hint
             Constraint::Min(0),    // Remaining
         ])
         .split(inner);
@@ -101,6 +102,7 @@ impl Widget for HelpPopup {
         render_keybinding(chunks[3], buf, "Tab / Shift+Tab", "Switch view");
         render_keybinding(chunks[4], buf, "1-4", "Jump to view");
         render_keybinding(chunks[5], buf, "Up/Down or j/k", "Scroll (Daily)");
+        render_keybinding(chunks[6], buf, "d / w / m", "Daily/Weekly/Monthly");
 
         // General section
         let gen_header = Line::from(vec![Span::styled(
@@ -111,18 +113,18 @@ impl Widget for HelpPopup {
         )]);
         Paragraph::new(gen_header)
             .alignment(Alignment::Left)
-            .render(chunks[7], buf);
+            .render(chunks[8], buf);
 
         // Separator
         buf.set_string(
-            chunks[8].x,
-            chunks[8].y,
+            chunks[9].x,
+            chunks[9].y,
             &sep,
             Style::default().fg(Color::DarkGray),
         );
 
-        render_keybinding(chunks[9], buf, "q / Esc", "Quit");
-        render_keybinding(chunks[10], buf, "?", "Toggle help");
+        render_keybinding(chunks[10], buf, "q / Esc", "Quit");
+        render_keybinding(chunks[11], buf, "?", "Toggle help");
 
         // Close hint
         let hint = Line::from(vec![Span::styled(
@@ -131,7 +133,7 @@ impl Widget for HelpPopup {
         )]);
         Paragraph::new(hint)
             .alignment(Alignment::Center)
-            .render(chunks[12], buf);
+            .render(chunks[13], buf);
     }
 }
 

@@ -19,7 +19,7 @@ use crate::services::{Aggregator, PricingService};
 use crate::types::{CacheWarning, StatsData, TotalSummary};
 
 use super::widgets::{
-    daily::{DailyData, DailyView},
+    daily::{DailyData, DailyView, DailyViewMode},
     help::HelpPopup,
     models::{ModelsData, ModelsView},
     overview::{Overview, OverviewData},
@@ -59,6 +59,9 @@ pub struct App {
     should_quit: bool,
     current_tab: Tab,
     daily_scroll: usize,
+    weekly_scroll: usize,
+    monthly_scroll: usize,
+    daily_view_mode: DailyViewMode,
     show_help: bool,
 }
 
@@ -73,7 +76,28 @@ impl App {
             should_quit: false,
             current_tab: Tab::default(),
             daily_scroll: 0,
+            weekly_scroll: 0,
+            monthly_scroll: 0,
+            daily_view_mode: DailyViewMode::default(),
             show_help: false,
+        }
+    }
+
+    /// Get scroll offset for the current daily view mode
+    fn active_scroll(&self) -> usize {
+        match self.daily_view_mode {
+            DailyViewMode::Daily => self.daily_scroll,
+            DailyViewMode::Weekly => self.weekly_scroll,
+            DailyViewMode::Monthly => self.monthly_scroll,
+        }
+    }
+
+    /// Get mutable reference to scroll offset for the current daily view mode
+    fn active_scroll_mut(&mut self) -> &mut usize {
+        match self.daily_view_mode {
+            DailyViewMode::Daily => &mut self.daily_scroll,
+            DailyViewMode::Weekly => &mut self.weekly_scroll,
+            DailyViewMode::Monthly => &mut self.monthly_scroll,
         }
     }
 
@@ -105,6 +129,15 @@ impl App {
                     KeyCode::Char('?') => {
                         self.show_help = !self.show_help;
                     }
+                    KeyCode::Char('d') if self.current_tab == Tab::Daily => {
+                        self.daily_view_mode = DailyViewMode::Daily;
+                    }
+                    KeyCode::Char('w') if self.current_tab == Tab::Daily => {
+                        self.daily_view_mode = DailyViewMode::Weekly;
+                    }
+                    KeyCode::Char('m') if self.current_tab == Tab::Daily => {
+                        self.daily_view_mode = DailyViewMode::Monthly;
+                    }
                     _ => {}
                 }
             }
@@ -114,16 +147,19 @@ impl App {
     /// Scroll up in the current view
     fn scroll_up(&mut self) {
         if self.current_tab == Tab::Daily {
-            self.daily_scroll = self.daily_scroll.saturating_sub(1);
+            let scroll = self.active_scroll_mut();
+            *scroll = scroll.saturating_sub(1);
         }
     }
 
     /// Scroll down in the current view
     fn scroll_down(&mut self) {
         if self.current_tab == Tab::Daily {
+            let mode = self.daily_view_mode;
             if let AppState::Ready { data } = &self.state {
-                let max = DailyView::max_scroll_offset(&data.daily_data);
-                self.daily_scroll = (self.daily_scroll + 1).min(max);
+                let max = DailyView::max_scroll_offset(&data.daily_data, mode);
+                let scroll = self.active_scroll_mut();
+                *scroll = (*scroll + 1).min(max);
             }
         }
     }
@@ -188,8 +224,12 @@ impl Widget for &App {
                         models_view.render(area, buf);
                     }
                     Tab::Daily => {
-                        let daily_view = DailyView::new(&data.daily_data, self.daily_scroll)
-                            .with_tab(self.current_tab);
+                        let daily_view = DailyView::new(
+                            &data.daily_data,
+                            self.active_scroll(),
+                            self.daily_view_mode,
+                        )
+                        .with_tab(self.current_tab);
                         daily_view.render(area, buf);
                     }
                     Tab::Stats => {
@@ -317,8 +357,13 @@ fn run_app(terminal: &mut DefaultTerminal) -> anyhow::Result<()> {
             if let Ok(result) = rx.try_recv() {
                 match result {
                     Ok(data) => {
-                        // Initialize scroll to bottom (newest data)
-                        app.daily_scroll = DailyView::max_scroll_offset(&data.daily_data);
+                        // Initialize scroll to bottom (newest data) for all modes
+                        app.daily_scroll =
+                            DailyView::max_scroll_offset(&data.daily_data, DailyViewMode::Daily);
+                        app.weekly_scroll =
+                            DailyView::max_scroll_offset(&data.daily_data, DailyViewMode::Weekly);
+                        app.monthly_scroll =
+                            DailyView::max_scroll_offset(&data.daily_data, DailyViewMode::Monthly);
                         app.state = AppState::Ready { data };
                     }
                     Err(message) => app.state = AppState::Error { message },
@@ -341,6 +386,51 @@ fn run_app(terminal: &mut DefaultTerminal) -> anyhow::Result<()> {
 mod tests {
     use super::*;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::collections::HashMap;
+
+    /// Helper to create a ready app with minimal data for testing
+    fn make_ready_app() -> App {
+        use crate::types::DailySummary;
+        use chrono::NaiveDate;
+
+        let summaries: Vec<DailySummary> = (1..=20)
+            .map(|d| DailySummary {
+                date: NaiveDate::from_ymd_opt(2025, 1, d).unwrap(),
+                total_input_tokens: 100,
+                total_output_tokens: 50,
+                total_cache_read_tokens: 0,
+                total_cache_creation_tokens: 0,
+                total_cost_usd: 0.01,
+                models: HashMap::new(),
+            })
+            .collect();
+
+        let daily_tokens: Vec<(NaiveDate, u64)> = summaries.iter().map(|d| (d.date, 150)).collect();
+
+        let daily_data = DailyData::from_daily_summaries(summaries.clone());
+        let stats_data = crate::types::StatsData::from_daily_summaries(&summaries);
+        let models_data = super::ModelsData::from_model_usage(&HashMap::new());
+
+        let mut app = App::new();
+        let daily_scroll = DailyView::max_scroll_offset(&daily_data, DailyViewMode::Daily);
+        let weekly_scroll = DailyView::max_scroll_offset(&daily_data, DailyViewMode::Weekly);
+        let monthly_scroll = DailyView::max_scroll_offset(&daily_data, DailyViewMode::Monthly);
+
+        app.state = AppState::Ready {
+            data: Box::new(AppData {
+                total: crate::types::TotalSummary::default(),
+                daily_tokens,
+                models_data,
+                daily_data,
+                stats_data,
+                cache_warning: None,
+            }),
+        };
+        app.daily_scroll = daily_scroll;
+        app.weekly_scroll = weekly_scroll;
+        app.monthly_scroll = monthly_scroll;
+        app
+    }
 
     #[test]
     fn test_app_initial_state() {
@@ -472,5 +562,79 @@ mod tests {
         // Press '?' again to hide help
         app.handle_event(event);
         assert!(!app.show_help);
+    }
+
+    #[test]
+    fn test_d_w_m_keys_on_daily_tab() {
+        let mut app = make_ready_app();
+        // Navigate to Daily tab
+        app.current_tab = Tab::Daily;
+        assert_eq!(app.daily_view_mode, DailyViewMode::Daily);
+
+        // Press 'w' → Weekly
+        app.handle_event(Event::Key(KeyEvent::new(
+            KeyCode::Char('w'),
+            KeyModifiers::NONE,
+        )));
+        assert_eq!(app.daily_view_mode, DailyViewMode::Weekly);
+
+        // Press 'm' → Monthly
+        app.handle_event(Event::Key(KeyEvent::new(
+            KeyCode::Char('m'),
+            KeyModifiers::NONE,
+        )));
+        assert_eq!(app.daily_view_mode, DailyViewMode::Monthly);
+
+        // Press 'd' → Daily
+        app.handle_event(Event::Key(KeyEvent::new(
+            KeyCode::Char('d'),
+            KeyModifiers::NONE,
+        )));
+        assert_eq!(app.daily_view_mode, DailyViewMode::Daily);
+    }
+
+    #[test]
+    fn test_d_w_m_keys_ignored_on_other_tabs() {
+        let mut app = make_ready_app();
+        app.current_tab = Tab::Overview;
+        assert_eq!(app.daily_view_mode, DailyViewMode::Daily);
+
+        // Press 'w' on Overview tab → should NOT change view mode
+        app.handle_event(Event::Key(KeyEvent::new(
+            KeyCode::Char('w'),
+            KeyModifiers::NONE,
+        )));
+        assert_eq!(app.daily_view_mode, DailyViewMode::Daily);
+
+        // Same for Models tab
+        app.current_tab = Tab::Models;
+        app.handle_event(Event::Key(KeyEvent::new(
+            KeyCode::Char('m'),
+            KeyModifiers::NONE,
+        )));
+        assert_eq!(app.daily_view_mode, DailyViewMode::Daily);
+    }
+
+    #[test]
+    fn test_independent_scroll_positions() {
+        let mut app = make_ready_app();
+        app.current_tab = Tab::Daily;
+
+        // Record initial scroll positions (all at max)
+        let initial_daily = app.daily_scroll;
+        let initial_weekly = app.weekly_scroll;
+
+        // Scroll up in Daily mode
+        app.handle_event(Event::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)));
+        assert_eq!(app.daily_scroll, initial_daily.saturating_sub(1));
+        // Weekly scroll should be unchanged
+        assert_eq!(app.weekly_scroll, initial_weekly);
+
+        // Switch to Weekly and scroll up
+        app.daily_view_mode = DailyViewMode::Weekly;
+        app.handle_event(Event::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)));
+        assert_eq!(app.weekly_scroll, initial_weekly.saturating_sub(1));
+        // Daily scroll should remain as modified
+        assert_eq!(app.daily_scroll, initial_daily.saturating_sub(1));
     }
 }

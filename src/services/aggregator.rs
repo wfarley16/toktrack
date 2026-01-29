@@ -1,9 +1,46 @@
 //! Aggregator service for computing usage statistics
 
 use crate::types::{DailySummary, ModelUsage, TotalSummary, UsageEntry};
+use chrono::Datelike;
 use std::collections::{HashMap, HashSet};
 
 pub struct Aggregator;
+
+/// Accumulate token fields and cost from `source` into `target`
+fn accumulate_summary(target: &mut DailySummary, source: &DailySummary) {
+    target.total_input_tokens = target
+        .total_input_tokens
+        .saturating_add(source.total_input_tokens);
+    target.total_output_tokens = target
+        .total_output_tokens
+        .saturating_add(source.total_output_tokens);
+    target.total_cache_read_tokens = target
+        .total_cache_read_tokens
+        .saturating_add(source.total_cache_read_tokens);
+    target.total_cache_creation_tokens = target
+        .total_cache_creation_tokens
+        .saturating_add(source.total_cache_creation_tokens);
+    target.total_cost_usd += source.total_cost_usd;
+
+    for (model_name, model_usage) in &source.models {
+        let t = target.models.entry(model_name.clone()).or_default();
+        merge_model_usage(t, model_usage);
+    }
+}
+
+/// Merge model usage fields from `source` into `target`
+fn merge_model_usage(target: &mut ModelUsage, source: &ModelUsage) {
+    target.input_tokens = target.input_tokens.saturating_add(source.input_tokens);
+    target.output_tokens = target.output_tokens.saturating_add(source.output_tokens);
+    target.cache_read_tokens = target
+        .cache_read_tokens
+        .saturating_add(source.cache_read_tokens);
+    target.cache_creation_tokens = target
+        .cache_creation_tokens
+        .saturating_add(source.cache_creation_tokens);
+    target.cost_usd += source.cost_usd;
+    target.count = target.count.saturating_add(source.count);
+}
 
 impl Aggregator {
     pub fn daily(entries: &[UsageEntry]) -> Vec<DailySummary> {
@@ -50,6 +87,71 @@ impl Aggregator {
 
         // Sort by date ascending
         let mut result: Vec<DailySummary> = daily_map.into_values().collect();
+        result.sort_by_key(|s| s.date);
+        result
+    }
+
+    /// Aggregate daily summaries into weekly summaries (Sunday-start weeks)
+    pub fn weekly(daily_summaries: &[DailySummary]) -> Vec<DailySummary> {
+        if daily_summaries.is_empty() {
+            return Vec::new();
+        }
+
+        let mut week_map: HashMap<chrono::NaiveDate, DailySummary> = HashMap::new();
+
+        for summary in daily_summaries {
+            // Calculate the Sunday that starts this week
+            let days_from_sunday = summary.date.weekday().num_days_from_sunday();
+            let week_start = summary
+                .date
+                .checked_sub_signed(chrono::Duration::days(days_from_sunday as i64))
+                .unwrap_or(summary.date);
+
+            let week_summary = week_map.entry(week_start).or_insert_with(|| DailySummary {
+                date: week_start,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                total_cache_read_tokens: 0,
+                total_cache_creation_tokens: 0,
+                total_cost_usd: 0.0,
+                models: HashMap::new(),
+            });
+
+            accumulate_summary(week_summary, summary);
+        }
+
+        let mut result: Vec<DailySummary> = week_map.into_values().collect();
+        result.sort_by_key(|s| s.date);
+        result
+    }
+
+    /// Aggregate daily summaries into monthly summaries (calendar months)
+    pub fn monthly(daily_summaries: &[DailySummary]) -> Vec<DailySummary> {
+        if daily_summaries.is_empty() {
+            return Vec::new();
+        }
+
+        let mut month_map: HashMap<(i32, u32), DailySummary> = HashMap::new();
+
+        for summary in daily_summaries {
+            let key = (summary.date.year(), summary.date.month());
+            let month_start =
+                chrono::NaiveDate::from_ymd_opt(key.0, key.1, 1).unwrap_or(summary.date);
+
+            let month_summary = month_map.entry(key).or_insert_with(|| DailySummary {
+                date: month_start,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                total_cache_read_tokens: 0,
+                total_cache_creation_tokens: 0,
+                total_cost_usd: 0.0,
+                models: HashMap::new(),
+            });
+
+            accumulate_summary(month_summary, summary);
+        }
+
+        let mut result: Vec<DailySummary> = month_map.into_values().collect();
         result.sort_by_key(|s| s.date);
         result
     }
@@ -354,5 +456,257 @@ mod tests {
 
         // None cost should be treated as 0.0
         assert!((result.total_cost_usd - 0.01).abs() < f64::EPSILON);
+    }
+
+    // ========== Weekly aggregation tests ==========
+
+    fn make_daily_summary(
+        year: i32,
+        month: u32,
+        day: u32,
+        input: u64,
+        output: u64,
+        cost: f64,
+    ) -> DailySummary {
+        DailySummary {
+            date: chrono::NaiveDate::from_ymd_opt(year, month, day).unwrap(),
+            total_input_tokens: input,
+            total_output_tokens: output,
+            total_cache_read_tokens: 0,
+            total_cache_creation_tokens: 0,
+            total_cost_usd: cost,
+            models: HashMap::new(),
+        }
+    }
+
+    fn make_daily_summary_with_models(
+        year: i32,
+        month: u32,
+        day: u32,
+        input: u64,
+        output: u64,
+        cost: f64,
+        models: HashMap<String, ModelUsage>,
+    ) -> DailySummary {
+        DailySummary {
+            date: chrono::NaiveDate::from_ymd_opt(year, month, day).unwrap(),
+            total_input_tokens: input,
+            total_output_tokens: output,
+            total_cache_read_tokens: 0,
+            total_cache_creation_tokens: 0,
+            total_cost_usd: cost,
+            models,
+        }
+    }
+
+    #[test]
+    fn test_weekly_empty() {
+        let result = Aggregator::weekly(&[]);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_weekly_single_day() {
+        // 2025-01-15 is Wednesday → week starts on 2025-01-12 (Sunday)
+        let summaries = vec![make_daily_summary(2025, 1, 15, 100, 50, 0.01)];
+        let result = Aggregator::weekly(&summaries);
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].date.to_string(), "2025-01-12");
+        assert_eq!(result[0].total_input_tokens, 100);
+        assert_eq!(result[0].total_output_tokens, 50);
+    }
+
+    #[test]
+    fn test_weekly_same_week_merge() {
+        // 2025-01-13 (Mon) and 2025-01-15 (Wed) → both in week starting 2025-01-12 (Sun)
+        let summaries = vec![
+            make_daily_summary(2025, 1, 13, 100, 50, 0.01),
+            make_daily_summary(2025, 1, 15, 200, 100, 0.02),
+        ];
+        let result = Aggregator::weekly(&summaries);
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].date.to_string(), "2025-01-12");
+        assert_eq!(result[0].total_input_tokens, 300);
+        assert_eq!(result[0].total_output_tokens, 150);
+        assert!((result[0].total_cost_usd - 0.03).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_weekly_cross_week() {
+        // 2025-01-18 (Sat) → week of 2025-01-12
+        // 2025-01-19 (Sun) → week of 2025-01-19
+        let summaries = vec![
+            make_daily_summary(2025, 1, 18, 100, 50, 0.01),
+            make_daily_summary(2025, 1, 19, 200, 100, 0.02),
+        ];
+        let result = Aggregator::weekly(&summaries);
+
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].date.to_string(), "2025-01-12");
+        assert_eq!(result[1].date.to_string(), "2025-01-19");
+    }
+
+    #[test]
+    fn test_weekly_sunday_stays() {
+        // Sunday itself is the start of its own week
+        // 2025-01-12 is a Sunday
+        let summaries = vec![make_daily_summary(2025, 1, 12, 100, 50, 0.01)];
+        let result = Aggregator::weekly(&summaries);
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].date.to_string(), "2025-01-12");
+    }
+
+    #[test]
+    fn test_weekly_saturday_maps_to_sunday() {
+        // 2025-01-18 is Saturday → maps to Sunday 2025-01-12
+        let summaries = vec![make_daily_summary(2025, 1, 18, 100, 50, 0.01)];
+        let result = Aggregator::weekly(&summaries);
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].date.to_string(), "2025-01-12");
+    }
+
+    #[test]
+    fn test_weekly_models_merged() {
+        let mut models_a = HashMap::new();
+        models_a.insert(
+            "claude".to_string(),
+            ModelUsage {
+                input_tokens: 100,
+                output_tokens: 50,
+                cost_usd: 0.01,
+                count: 1,
+                ..Default::default()
+            },
+        );
+
+        let mut models_b = HashMap::new();
+        models_b.insert(
+            "claude".to_string(),
+            ModelUsage {
+                input_tokens: 200,
+                output_tokens: 100,
+                cost_usd: 0.02,
+                count: 2,
+                ..Default::default()
+            },
+        );
+        models_b.insert(
+            "gpt-4".to_string(),
+            ModelUsage {
+                input_tokens: 50,
+                output_tokens: 25,
+                cost_usd: 0.005,
+                count: 1,
+                ..Default::default()
+            },
+        );
+
+        // Same week (Mon and Wed of 2025-01-12 week)
+        let summaries = vec![
+            make_daily_summary_with_models(2025, 1, 13, 100, 50, 0.01, models_a),
+            make_daily_summary_with_models(2025, 1, 15, 250, 125, 0.025, models_b),
+        ];
+
+        let result = Aggregator::weekly(&summaries);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].models.len(), 2);
+
+        let claude = result[0].models.get("claude").unwrap();
+        assert_eq!(claude.input_tokens, 300);
+        assert_eq!(claude.count, 3);
+
+        let gpt = result[0].models.get("gpt-4").unwrap();
+        assert_eq!(gpt.input_tokens, 50);
+        assert_eq!(gpt.count, 1);
+    }
+
+    #[test]
+    fn test_weekly_sorted() {
+        let summaries = vec![
+            make_daily_summary(2025, 1, 20, 100, 50, 0.01), // week of Jan 19
+            make_daily_summary(2025, 1, 6, 200, 100, 0.02), // week of Jan 5
+            make_daily_summary(2025, 1, 13, 150, 75, 0.015), // week of Jan 12
+        ];
+        let result = Aggregator::weekly(&summaries);
+
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].date.to_string(), "2025-01-05");
+        assert_eq!(result[1].date.to_string(), "2025-01-12");
+        assert_eq!(result[2].date.to_string(), "2025-01-19");
+    }
+
+    // ========== Monthly aggregation tests ==========
+
+    #[test]
+    fn test_monthly_empty() {
+        let result = Aggregator::monthly(&[]);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_monthly_single_day() {
+        let summaries = vec![make_daily_summary(2025, 1, 15, 100, 50, 0.01)];
+        let result = Aggregator::monthly(&summaries);
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].date.to_string(), "2025-01-01");
+        assert_eq!(result[0].total_input_tokens, 100);
+    }
+
+    #[test]
+    fn test_monthly_same_month_merge() {
+        let summaries = vec![
+            make_daily_summary(2025, 1, 5, 100, 50, 0.01),
+            make_daily_summary(2025, 1, 20, 200, 100, 0.02),
+        ];
+        let result = Aggregator::monthly(&summaries);
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].date.to_string(), "2025-01-01");
+        assert_eq!(result[0].total_input_tokens, 300);
+        assert_eq!(result[0].total_output_tokens, 150);
+        assert!((result[0].total_cost_usd - 0.03).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_monthly_cross_month() {
+        let summaries = vec![
+            make_daily_summary(2025, 1, 31, 100, 50, 0.01),
+            make_daily_summary(2025, 2, 1, 200, 100, 0.02),
+        ];
+        let result = Aggregator::monthly(&summaries);
+
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].date.to_string(), "2025-01-01");
+        assert_eq!(result[1].date.to_string(), "2025-02-01");
+    }
+
+    #[test]
+    fn test_monthly_first_of_month() {
+        // Date is already first of month
+        let summaries = vec![make_daily_summary(2025, 3, 1, 100, 50, 0.01)];
+        let result = Aggregator::monthly(&summaries);
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].date.to_string(), "2025-03-01");
+    }
+
+    #[test]
+    fn test_monthly_sorted() {
+        let summaries = vec![
+            make_daily_summary(2025, 3, 15, 100, 50, 0.01),
+            make_daily_summary(2025, 1, 10, 200, 100, 0.02),
+            make_daily_summary(2025, 2, 20, 150, 75, 0.015),
+        ];
+        let result = Aggregator::monthly(&summaries);
+
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].date.to_string(), "2025-01-01");
+        assert_eq!(result[1].date.to_string(), "2025-02-01");
+        assert_eq!(result[2].date.to_string(), "2025-03-01");
     }
 }
