@@ -6,7 +6,7 @@
 
 Ultra-fast AI CLI token usage tracker. Built with Rust + simd-json + ratatui.
 
-![toktrack overview](image.png)
+![toktrack overview](demo.gif)
 
 ## Why toktrack?
 
@@ -20,7 +20,7 @@ Ultra-fast AI CLI token usage tracker. Built with Rust + simd-json + ratatui.
 ## Features
 
 - **Blazing Fast** - simd-json based parsing (~2 GiB/s throughput)
-- **Beautiful TUI** - 4 views (Overview, Models, Daily, Stats)
+- **TUI Dashboard** - 4 views (Overview, Models, Daily, Stats) with daily/weekly/monthly breakdown
 - **CLI Commands** - `daily`, `stats` with JSON output support
 - **Data Preservation** - Automatic backup before 30-day deletion
 
@@ -75,6 +75,7 @@ toktrack backup
 | `1-4` | Switch tabs directly |
 | `Tab` / `Shift+Tab` | Next / Previous tab |
 | `j` / `k` or `↑` / `↓` | Scroll up / down |
+| `d` / `w` / `m` | Daily / Weekly / Monthly view (Daily tab) |
 | `?` | Toggle help |
 | `q` | Quit |
 

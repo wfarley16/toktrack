@@ -15,6 +15,7 @@ use ratatui::{
 };
 
 use crate::parsers::ParserRegistry;
+use crate::services::update_checker::{check_for_update, execute_update, UpdateCheckResult};
 use crate::services::{Aggregator, PricingService};
 use crate::types::{CacheWarning, StatsData, TotalSummary};
 
@@ -26,6 +27,7 @@ use super::widgets::{
     spinner::{LoadingStage, Spinner},
     stats::StatsView,
     tabs::Tab,
+    update_popup::{UpdateMessagePopup, UpdatePopup},
 };
 
 /// Application state
@@ -53,6 +55,33 @@ pub struct AppData {
     pub cache_warning: Option<CacheWarning>,
 }
 
+/// Update overlay status
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UpdateStatus {
+    /// Background check in progress
+    Checking,
+    /// Update available, showing overlay
+    Available { current: String, latest: String },
+    /// Running npm update
+    Updating,
+    /// Update finished (success or failure)
+    UpdateDone { success: bool, message: String },
+    /// Resolved (no overlay)
+    Resolved,
+}
+
+impl UpdateStatus {
+    /// Whether the update overlay is currently displayed
+    pub fn shows_overlay(&self) -> bool {
+        matches!(
+            self,
+            UpdateStatus::Available { .. }
+                | UpdateStatus::Updating
+                | UpdateStatus::UpdateDone { .. }
+        )
+    }
+}
+
 /// Main application
 pub struct App {
     state: AppState,
@@ -63,6 +92,8 @@ pub struct App {
     monthly_scroll: usize,
     daily_view_mode: DailyViewMode,
     show_help: bool,
+    update_status: UpdateStatus,
+    pending_data: Option<Result<Box<AppData>, String>>,
 }
 
 impl App {
@@ -80,6 +111,8 @@ impl App {
             monthly_scroll: 0,
             daily_view_mode: DailyViewMode::default(),
             show_help: false,
+            update_status: UpdateStatus::Checking,
+            pending_data: None,
         }
     }
 
@@ -141,6 +174,63 @@ impl App {
                     _ => {}
                 }
             }
+        }
+    }
+
+    /// Handle keyboard events when update overlay is displayed
+    pub fn handle_update_event(&mut self, event: Event) {
+        if let Event::Key(key) = event {
+            if key.kind == KeyEventKind::Press {
+                match (&self.update_status, key.code) {
+                    // Available state: u triggers update, q/Esc quits, any other key skips
+                    (UpdateStatus::Available { .. }, KeyCode::Char('u') | KeyCode::Char('U')) => {
+                        self.update_status = UpdateStatus::Updating;
+                    }
+                    (
+                        UpdateStatus::Available { .. },
+                        KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc,
+                    ) => {
+                        self.should_quit = true;
+                    }
+                    (UpdateStatus::Available { .. }, _) => {
+                        self.update_status = UpdateStatus::Resolved;
+                        self.consume_pending_data();
+                    }
+                    // UpdateDone state: any key dismisses
+                    (UpdateStatus::UpdateDone { success, .. }, _) => {
+                        if *success {
+                            self.should_quit = true;
+                        } else {
+                            self.update_status = UpdateStatus::Resolved;
+                            self.consume_pending_data();
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    /// Consume pending data if available, transitioning to Ready state
+    fn consume_pending_data(&mut self) {
+        if let Some(result) = self.pending_data.take() {
+            self.apply_data_result(result);
+        }
+    }
+
+    /// Apply data loading result to app state
+    fn apply_data_result(&mut self, result: Result<Box<AppData>, String>) {
+        match result {
+            Ok(data) => {
+                self.daily_scroll =
+                    DailyView::max_scroll_offset(&data.daily_data, DailyViewMode::Daily);
+                self.weekly_scroll =
+                    DailyView::max_scroll_offset(&data.daily_data, DailyViewMode::Weekly);
+                self.monthly_scroll =
+                    DailyView::max_scroll_offset(&data.daily_data, DailyViewMode::Monthly);
+                self.state = AppState::Ready { data };
+            }
+            Err(message) => self.state = AppState::Error { message },
         }
     }
 
@@ -252,6 +342,25 @@ impl Widget for &App {
                 buf.set_string(x, y, &text, Style::default().fg(Color::Red));
             }
         }
+
+        // Render update overlay on top of everything (works in both Loading and Ready states)
+        match &self.update_status {
+            UpdateStatus::Available { current, latest } => {
+                let popup_area = UpdatePopup::centered_area(area);
+                UpdatePopup::new(current, latest).render(popup_area, buf);
+            }
+            UpdateStatus::Updating => {
+                let popup_area = UpdateMessagePopup::centered_area(area);
+                UpdateMessagePopup::new("Running npm update -g toktrack...", Color::Yellow)
+                    .render(popup_area, buf);
+            }
+            UpdateStatus::UpdateDone { success, message } => {
+                let popup_area = UpdateMessagePopup::centered_area(area);
+                let color = if *success { Color::Green } else { Color::Red };
+                UpdateMessagePopup::new(message, color).render(popup_area, buf);
+            }
+            UpdateStatus::Checking | UpdateStatus::Resolved => {}
+        }
     }
 }
 
@@ -339,10 +448,17 @@ fn run_app(terminal: &mut DefaultTerminal) -> anyhow::Result<()> {
     let mut app = App::new();
 
     // Spawn background thread for data loading
-    let (tx, rx) = mpsc::channel();
+    let (data_tx, data_rx) = mpsc::channel();
     thread::spawn(move || {
         let result = load_data_sync();
-        let _ = tx.send(result);
+        let _ = data_tx.send(result);
+    });
+
+    // Spawn background thread for update check
+    let (update_tx, update_rx) = mpsc::channel();
+    thread::spawn(move || {
+        let result = check_for_update();
+        let _ = update_tx.send(result);
     });
 
     loop {
@@ -354,26 +470,58 @@ fn run_app(terminal: &mut DefaultTerminal) -> anyhow::Result<()> {
 
         // Check for data loading completion (non-blocking)
         if matches!(app.state, AppState::Loading { .. }) {
-            if let Ok(result) = rx.try_recv() {
+            if let Ok(result) = data_rx.try_recv() {
+                if app.update_status.shows_overlay() {
+                    // Overlay is active, store data for later
+                    app.pending_data = Some(result);
+                } else {
+                    app.apply_data_result(result);
+                }
+            }
+        }
+
+        // Check for update check completion (non-blocking)
+        if app.update_status == UpdateStatus::Checking {
+            if let Ok(result) = update_rx.try_recv() {
                 match result {
-                    Ok(data) => {
-                        // Initialize scroll to bottom (newest data) for all modes
-                        app.daily_scroll =
-                            DailyView::max_scroll_offset(&data.daily_data, DailyViewMode::Daily);
-                        app.weekly_scroll =
-                            DailyView::max_scroll_offset(&data.daily_data, DailyViewMode::Weekly);
-                        app.monthly_scroll =
-                            DailyView::max_scroll_offset(&data.daily_data, DailyViewMode::Monthly);
-                        app.state = AppState::Ready { data };
+                    UpdateCheckResult::UpdateAvailable { current, latest } => {
+                        app.update_status = UpdateStatus::Available { current, latest };
                     }
-                    Err(message) => app.state = AppState::Error { message },
+                    UpdateCheckResult::UpToDate | UpdateCheckResult::CheckFailed => {
+                        app.update_status = UpdateStatus::Resolved;
+                    }
+                }
+            }
+        }
+
+        // Handle Updating state: run npm update in background
+        if app.update_status == UpdateStatus::Updating {
+            // Draw once to show "Running..." message before blocking
+            terminal.draw(|frame| app.draw(frame))?;
+            match execute_update() {
+                Ok(()) => {
+                    app.update_status = UpdateStatus::UpdateDone {
+                        success: true,
+                        message: "Updated! Press any key to exit.".to_string(),
+                    };
+                }
+                Err(e) => {
+                    app.update_status = UpdateStatus::UpdateDone {
+                        success: false,
+                        message: format!("Failed: {}", e),
+                    };
                 }
             }
         }
 
         // Poll for events with 100ms timeout for spinner animation
         if event::poll(Duration::from_millis(100))? {
-            app.handle_event(event::read()?);
+            let ev = event::read()?;
+            if app.update_status.shows_overlay() {
+                app.handle_update_event(ev);
+            } else {
+                app.handle_event(ev);
+            }
         } else {
             app.tick();
         }
@@ -636,5 +784,165 @@ mod tests {
         assert_eq!(app.weekly_scroll, initial_weekly.saturating_sub(1));
         // Daily scroll should remain as modified
         assert_eq!(app.daily_scroll, initial_daily.saturating_sub(1));
+    }
+
+    // ========== Update overlay tests ==========
+
+    #[test]
+    fn test_app_initial_update_status() {
+        let app = App::new();
+        assert_eq!(app.update_status, UpdateStatus::Checking);
+        assert!(app.pending_data.is_none());
+    }
+
+    #[test]
+    fn test_update_overlay_skip_any_key() {
+        let mut app = App::new();
+        app.update_status = UpdateStatus::Available {
+            current: "0.1.14".to_string(),
+            latest: "0.2.0".to_string(),
+        };
+
+        // Press space → should skip (resolve)
+        let event = Event::Key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+        app.handle_update_event(event);
+
+        assert_eq!(app.update_status, UpdateStatus::Resolved);
+        assert!(!app.should_quit());
+    }
+
+    #[test]
+    fn test_update_overlay_u_triggers_update() {
+        let mut app = App::new();
+        app.update_status = UpdateStatus::Available {
+            current: "0.1.14".to_string(),
+            latest: "0.2.0".to_string(),
+        };
+
+        // Press 'u' → should trigger update
+        let event = Event::Key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE));
+        app.handle_update_event(event);
+
+        assert_eq!(app.update_status, UpdateStatus::Updating);
+    }
+
+    #[test]
+    fn test_update_overlay_quit_still_works() {
+        let mut app = App::new();
+        app.update_status = UpdateStatus::Available {
+            current: "0.1.14".to_string(),
+            latest: "0.2.0".to_string(),
+        };
+
+        // Press 'q' → should quit
+        let event = Event::Key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
+        app.handle_update_event(event);
+
+        assert!(app.should_quit());
+    }
+
+    #[test]
+    fn test_update_overlay_esc_quits() {
+        let mut app = App::new();
+        app.update_status = UpdateStatus::Available {
+            current: "0.1.14".to_string(),
+            latest: "0.2.0".to_string(),
+        };
+
+        let event = Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        app.handle_update_event(event);
+
+        assert!(app.should_quit());
+    }
+
+    #[test]
+    fn test_pending_data_consumed_on_skip() {
+        use crate::types::DailySummary;
+        use chrono::NaiveDate;
+
+        let mut app = App::new();
+        app.update_status = UpdateStatus::Available {
+            current: "0.1.14".to_string(),
+            latest: "0.2.0".to_string(),
+        };
+
+        // Simulate data arriving while overlay is shown
+        let summaries: Vec<DailySummary> = vec![DailySummary {
+            date: NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+            total_input_tokens: 100,
+            total_output_tokens: 50,
+            total_cache_read_tokens: 0,
+            total_cache_creation_tokens: 0,
+            total_cost_usd: 0.01,
+            models: HashMap::new(),
+        }];
+        let daily_tokens: Vec<(NaiveDate, u64)> = vec![(summaries[0].date, 150)];
+        let daily_data = DailyData::from_daily_summaries(summaries.clone());
+        let stats_data = crate::types::StatsData::from_daily_summaries(&summaries);
+        let models_data = ModelsData::from_model_usage(&HashMap::new());
+
+        app.pending_data = Some(Ok(Box::new(AppData {
+            total: crate::types::TotalSummary::default(),
+            daily_tokens,
+            models_data,
+            daily_data,
+            stats_data,
+            cache_warning: None,
+        })));
+
+        // Skip update overlay
+        let event = Event::Key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+        app.handle_update_event(event);
+
+        // Should have consumed pending_data and transitioned to Ready
+        assert_eq!(app.update_status, UpdateStatus::Resolved);
+        assert!(app.pending_data.is_none());
+        assert!(matches!(app.state, AppState::Ready { .. }));
+    }
+
+    #[test]
+    fn test_show_update_overlay_states() {
+        assert!(!UpdateStatus::Checking.shows_overlay());
+        assert!(!UpdateStatus::Resolved.shows_overlay());
+        assert!(UpdateStatus::Available {
+            current: "1.0.0".to_string(),
+            latest: "2.0.0".to_string()
+        }
+        .shows_overlay());
+        assert!(UpdateStatus::Updating.shows_overlay());
+        assert!(UpdateStatus::UpdateDone {
+            success: true,
+            message: "ok".to_string()
+        }
+        .shows_overlay());
+    }
+
+    #[test]
+    fn test_update_done_success_quits_on_any_key() {
+        let mut app = App::new();
+        app.update_status = UpdateStatus::UpdateDone {
+            success: true,
+            message: "Updated!".to_string(),
+        };
+
+        let event = Event::Key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+        app.handle_update_event(event);
+
+        assert!(app.should_quit());
+    }
+
+    #[test]
+    fn test_update_done_failure_dismisses_on_any_key() {
+        let mut app = App::new();
+        app.update_status = UpdateStatus::UpdateDone {
+            success: false,
+            message: "Failed".to_string(),
+        };
+
+        let event = Event::Key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+        app.handle_update_event(event);
+
+        assert!(!app.should_quit());
+        assert_eq!(app.update_status, UpdateStatus::Resolved);
     }
 }

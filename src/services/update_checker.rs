@@ -3,7 +3,6 @@
 //! Checks npm registry for newer versions and provides update functionality.
 
 use serde::Deserialize;
-use std::io::{self, Write};
 use std::process::Command;
 use std::time::Duration;
 
@@ -12,9 +11,6 @@ const NPM_REGISTRY_URL: &str = "https://registry.npmjs.org/toktrack/latest";
 
 /// HTTP request timeout in seconds
 const REQUEST_TIMEOUT_SECS: u64 = 3;
-
-/// Key input timeout in seconds
-const KEY_INPUT_TIMEOUT_SECS: u64 = 5;
 
 /// Current version from Cargo.toml
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -98,15 +94,12 @@ pub fn is_newer_version(latest: &str, current: &str) -> bool {
 
 /// Execute npm update command
 pub fn execute_update() -> Result<(), String> {
-    eprintln!("[toktrack] Running: npm update -g toktrack");
-
     let output = Command::new("npm")
         .args(["update", "-g", "toktrack"])
         .output()
         .map_err(|e| format!("Failed to run npm: {}", e))?;
 
     if output.status.success() {
-        eprintln!("[toktrack] Updated successfully! Please restart toktrack.");
         Ok(())
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -115,59 +108,6 @@ pub fn execute_update() -> Result<(), String> {
             stderr.trim()
         ))
     }
-}
-
-/// Check for updates and prompt user
-pub fn check_and_prompt_update() {
-    match check_for_update() {
-        UpdateCheckResult::UpdateAvailable { current, latest } => {
-            eprint!(
-                "[toktrack] Update available: {} -> {} (press 'u' to update, any key to continue) ",
-                current, latest
-            );
-            let _ = io::stderr().flush();
-
-            if wait_for_update_key() {
-                match execute_update() {
-                    Ok(()) => {
-                        std::process::exit(0);
-                    }
-                    Err(e) => {
-                        eprintln!("[toktrack] {}", e);
-                    }
-                }
-            }
-        }
-        UpdateCheckResult::UpToDate | UpdateCheckResult::CheckFailed => {
-            // Silent: don't interrupt normal flow
-        }
-    }
-}
-
-/// Wait for key input with timeout
-/// Returns true if 'u' was pressed
-fn wait_for_update_key() -> bool {
-    use crossterm::event::{self, Event, KeyCode, KeyEvent};
-    use crossterm::terminal;
-
-    if terminal::enable_raw_mode().is_err() {
-        return false;
-    }
-
-    let result = if event::poll(Duration::from_secs(KEY_INPUT_TIMEOUT_SECS)).unwrap_or(false) {
-        if let Ok(Event::Key(KeyEvent { code, .. })) = event::read() {
-            matches!(code, KeyCode::Char('u') | KeyCode::Char('U'))
-        } else {
-            false
-        }
-    } else {
-        eprintln!();
-        false
-    };
-
-    let _ = terminal::disable_raw_mode();
-
-    result
 }
 
 #[cfg(test)]

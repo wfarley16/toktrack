@@ -9,3 +9,4 @@ pub mod overview;
 pub mod spinner;
 pub mod stats;
 pub mod tabs;
+pub mod update_popup;

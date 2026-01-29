@@ -6,7 +6,7 @@
 
 Rust로 만든 초고속 AI CLI 토큰 사용량 트래커. simd-json + ratatui 기반.
 
-![toktrack overview](image.png)
+![toktrack overview](demo.gif)
 
 ## 왜 toktrack인가?
 
@@ -20,7 +20,7 @@ Rust로 만든 초고속 AI CLI 토큰 사용량 트래커. simd-json + ratatui 
 ## 주요 기능
 
 - **초고속 파싱** - simd-json 기반 (~2 GiB/s 처리량)
-- **4개 TUI 뷰** - Overview, Models, Daily, Stats
+- **4개 TUI 뷰** - Overview, Models, Daily, Stats (일별/주별/월별 집계)
 - **CLI 명령어** - `daily`, `stats` (JSON 출력 지원)
 - **데이터 보존** - 30일 삭제 전 자동 백업
 
@@ -75,6 +75,7 @@ toktrack backup
 | `1-4` | 탭 직접 전환 |
 | `Tab` / `Shift+Tab` | 다음 / 이전 탭 |
 | `j` / `k` 또는 `↑` / `↓` | 위 / 아래 스크롤 |
+| `d` / `w` / `m` | 일별 / 주별 / 월별 보기 (Daily 탭) |
 | `?` | 도움말 토글 |
 | `q` | 종료 |
 

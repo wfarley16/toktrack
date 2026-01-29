@@ -4,7 +4,7 @@
 
 Ultra-fast AI CLI token usage tracker. Built with Rust + simd-json + ratatui.
 
-![toktrack overview](https://raw.githubusercontent.com/mag123c/toktrack/main/image.png)
+![toktrack overview](https://raw.githubusercontent.com/mag123c/toktrack/main/demo.gif)
 
 ## Why toktrack?
 
@@ -26,7 +26,7 @@ npm install -g toktrack
 ## Features
 
 - **Blazing Fast** - 15x faster than Node.js alternatives (~2 GiB/s throughput)
-- **Beautiful TUI** - 4 views (Overview, Models, Daily, Stats) with heatmap
+- **TUI Dashboard** - 4 views (Overview, Models, Daily, Stats) with daily/weekly/monthly breakdown
 - **Multi-CLI Support** - Claude Code, Codex CLI, Gemini CLI
 - **CLI Commands** - `daily`, `stats` with JSON output
 - **Auto Update** - Check for updates on startup
@@ -64,6 +64,7 @@ toktrack stats --json   # JSON output
 | `1-4` | Switch tabs |
 | `Tab` | Next tab |
 | `j/k` or `↑/↓` | Scroll |
+| `d/w/m` | Daily / Weekly / Monthly view (Daily tab) |
 | `?` | Help |
 | `q` | Quit |
 
