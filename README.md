@@ -1,5 +1,8 @@
 # toktrack
 
+[![CI](https://github.com/mag123c/toktrack/actions/workflows/ci.yml/badge.svg)](https://github.com/mag123c/toktrack/actions/workflows/ci.yml)
+[![Crates.io](https://img.shields.io/crates/v/toktrack)](https://crates.io/crates/toktrack)
+[![npm](https://img.shields.io/npm/v/toktrack)](https://www.npmjs.com/package/toktrack)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **English** | [한국어](README.ko.md)
@@ -8,41 +11,59 @@ Ultra-fast AI CLI token usage tracker. Built with Rust + simd-json + ratatui.
 
 ![toktrack overview](demo.gif)
 
-## Why toktrack?
-
-| Tool | Time (2,000+ files / 3GB) | |
-|------|---------------------------|---|
-| ccusage (Node.js) | ~43s | 1x |
-| **toktrack (Rust)** | **~3s** | **15x faster** |
-
-> I hit ccusage's performance wall. After maxing out Node.js optimizations, I rewrote it in Rust.
-
 ## Features
 
-- **Blazing Fast** - simd-json based parsing (~2 GiB/s throughput)
-- **TUI Dashboard** - 4 views (Overview, Models, Daily, Stats) with daily/weekly/monthly breakdown
-- **CLI Commands** - `daily`, `weekly`, `monthly`, `stats` with JSON output support
-- **Data Preservation** - Cached summaries for fast repeated access
+- **Ultra-Fast Parsing** — simd-json + rayon parallel processing (~2 GiB/s throughput)
+- **TUI Dashboard** — 4 views (Overview, Models, Daily, Stats) with daily/weekly/monthly breakdown
+- **CLI Commands** — `daily`, `weekly`, `monthly`, `stats` with JSON output support
+- **Multi-CLI Support** — Claude Code, Codex CLI, Gemini CLI in one place
+- **Data Preservation** — Cached daily summaries survive CLI data deletion
 
 ## Installation
 
-**Recommended (No Rust required):**
+### npx (Recommended)
+
+No Rust toolchain required. Downloads the correct binary for your platform automatically.
+
 ```bash
 npx toktrack
 # or
 bunx toktrack
 ```
 
-**Other options:**
+### Cargo
+
 ```bash
-# Rust developers
 cargo install toktrack
+```
 
-# From source
+### From Source
+
+```bash
 cargo install --git https://github.com/mag123c/toktrack
+```
 
-# Direct download
-# → github.com/mag123c/toktrack/releases
+### Pre-built Binaries
+
+Download from [GitHub Releases](https://github.com/mag123c/toktrack/releases).
+
+| Platform | Architecture |
+|----------|-------------|
+| macOS | x64, ARM64 |
+| Linux | x64, ARM64 |
+| Windows | x64 |
+
+## Quick Start
+
+```bash
+# Launch TUI dashboard
+npx toktrack
+
+# Get today's cost in JSON
+npx toktrack daily --json
+
+# Monthly summary
+npx toktrack monthly --json
 ```
 
 ## Usage
@@ -89,33 +110,90 @@ toktrack stats --json
 | Gemini CLI | ✅ | `~/.gemini/tmp/*/chats/` |
 | OpenCode | 🔜 | `~/.local/share/opencode/` |
 
-## Benchmarks
+## Performance
 
-| Mode | Throughput |
-|------|------------|
-| Single file (simd-json) | ~1.0 GiB/s |
-| Parallel (rayon) | ~2.0 GiB/s |
+| Mode | Time |
+|------|------|
+| Cold start (no cache) | **~1.2s** |
+| Warm start (cached) | **~0.05s** |
 
-**Real-world performance** (2,000+ files / 3GB data):
-
-| Tool | Time | |
-|------|------|---|
-| ccusage (Node.js) | ~43s | 1x |
-| **toktrack** | **~3s** | **15x faster** |
+> Measured on Apple Silicon (9,000+ files / 3.4 GB).
 
 ## Data Preservation
 
-Claude Code and Gemini CLI delete session data after 30 days by default.
+AI CLIs delete or rotate session data on their own schedules. toktrack caches daily cost summaries independently, so your usage history survives even after the original data is gone.
 
-toktrack caches daily summaries to `~/.toktrack/cache/` for fast repeated access.
+### CLI Data Retention Policies
 
-To disable auto-deletion in Claude Code:
+| CLI | Default Retention | Policy |
+|-----|-------------------|--------|
+| Claude Code | **30 days** | `cleanupPeriodDays` (default: 30) |
+| Gemini CLI | Unlimited | opt-in `sessionRetention` |
+| Codex CLI | Unlimited | size-cap only (`max_bytes`) |
+
+### toktrack Cache Structure
+
+```
+~/.toktrack/
+├── cache/
+│   ├── claude-code_daily.json   # Daily cost summaries
+│   ├── codex_daily.json
+│   └── gemini_daily.json
+└── pricing.json                 # LiteLLM pricing (1h TTL)
+```
+
+Past dates in each `*_daily.json` are **immutable** — once a day is summarized, the cached result is never modified. Only the current day is recomputed on each run. This means even if Claude Code deletes session files after 30 days, your cost history remains intact in the cache.
+
+### Disable Claude Code Auto-Deletion
+
 ```json
 // ~/.claude/settings.json
 {
   "cleanupPeriodDays": 9999999999
 }
 ```
+
+### Reset Cache
+
+```bash
+rm -rf ~/.toktrack/cache/
+```
+
+The next run will rebuild the cache from available session data.
+
+## How It Works
+
+```
+┌─────────────────────────────────────────────────┐
+│                   CLI / TUI                     │
+└──────────────────────┬──────────────────────────┘
+                       │
+              ┌────────▼────────┐
+              │   Aggregator    │
+              └────────┬────────┘
+                       │
+         ┌─────────────┼─────────────┐
+         ▼             ▼             ▼
+   ┌──────────┐  ┌──────────┐  ┌──────────┐
+   │  Claude  │  │  Codex   │  │  Gemini  │
+   │  Parser  │  │  Parser  │  │  Parser  │
+   └────┬─────┘  └────┬─────┘  └────┬─────┘
+        │              │              │
+        ▼              ▼              ▼
+   simd-json     simd-json      simd-json
+   + rayon       + rayon        + rayon
+        │              │              │
+        └──────────────┼──────────────┘
+                       ▼
+              ┌────────────────┐
+              │     Cache      │
+              │ ~/.toktrack/   │
+              └────────────────┘
+```
+
+**Cold path** (first run): Full glob scan → parallel SIMD parsing → build cache → aggregate.
+
+**Warm path** (cached): Load cached summaries → parse only recent files (24h mtime filter) → merge → aggregate.
 
 ## Development
 
@@ -127,7 +205,7 @@ cargo bench   # Benchmarks
 
 ## Roadmap
 
-- [ ] **Performance** - Target sub-1s for 3GB+ datasets
+- [ ] **Performance** — Target sub-1s cold start for 3GB+ datasets
 - [ ] **OpenCode support**
 
 ## Contributing
