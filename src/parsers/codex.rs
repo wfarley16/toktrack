@@ -187,7 +187,7 @@ impl CLIParser for CodexParser {
     fn parse_file(&self, path: &Path) -> Result<Vec<UsageEntry>> {
         let file = File::open(path).map_err(ToktrackError::Io)?;
         let reader = BufReader::new(file);
-        let mut entries = Vec::new();
+        let mut last_entry: Option<UsageEntry> = None;
         let mut current_model: Option<String> = None;
         let mut session_id: Option<String> = None;
 
@@ -206,11 +206,13 @@ impl CLIParser for CodexParser {
                 ParseResult::Skip => {}
                 ParseResult::Model(m) => current_model = Some(m),
                 ParseResult::SessionId(id) => session_id = Some(id),
-                ParseResult::Entry(entry) => entries.push(entry),
+                // total_token_usage is cumulative; keep only the last
+                // token_count event which holds the session total.
+                ParseResult::Entry(entry) => last_entry = Some(entry),
             }
         }
 
-        Ok(entries)
+        Ok(last_entry.into_iter().collect())
     }
 }
 
@@ -228,47 +230,35 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_codex_jsonl() {
+    fn test_parse_codex_jsonl_uses_last_cumulative_total() {
         let parser = CodexParser::with_data_dir(PathBuf::from("tests/fixtures/codex"));
         let entries = parser
             .parse_file(&fixture_path("sample-session.jsonl"))
             .unwrap();
 
-        // Should parse 2 token_count events
-        assert_eq!(entries.len(), 2);
+        // total_token_usage is cumulative; only the last token_count
+        // event should be emitted per session file.
+        assert_eq!(entries.len(), 1);
     }
 
     #[test]
-    fn test_parse_first_entry() {
+    fn test_parse_last_entry_has_final_totals() {
         let parser = CodexParser::with_data_dir(PathBuf::from("tests/fixtures/codex"));
         let entries = parser
             .parse_file(&fixture_path("sample-session.jsonl"))
             .unwrap();
 
-        let first = &entries[0];
-        assert_eq!(first.model, Some("o4-mini".to_string()));
-        assert_eq!(first.input_tokens, 150);
-        assert_eq!(first.output_tokens, 75);
-        assert_eq!(first.cache_read_tokens, 25);
-        assert_eq!(first.cache_creation_tokens, 0);
-        assert_eq!(first.thinking_tokens, 0);
-        assert_eq!(first.source, Some("codex".into()));
-        assert_eq!(first.message_id, Some("session-001".to_string()));
-    }
-
-    #[test]
-    fn test_parse_model_switch() {
-        let parser = CodexParser::with_data_dir(PathBuf::from("tests/fixtures/codex"));
-        let entries = parser
-            .parse_file(&fixture_path("sample-session.jsonl"))
-            .unwrap();
-
-        // Second entry should have the new model
-        let second = &entries[1];
-        assert_eq!(second.model, Some("gpt-4.1".to_string()));
-        assert_eq!(second.input_tokens, 500);
-        assert_eq!(second.output_tokens, 200);
-        assert_eq!(second.cache_read_tokens, 100);
+        // The single entry should carry the last cumulative totals
+        // and the model active at that point.
+        let entry = &entries[0];
+        assert_eq!(entry.model, Some("gpt-4.1".to_string()));
+        assert_eq!(entry.input_tokens, 500);
+        assert_eq!(entry.output_tokens, 200);
+        assert_eq!(entry.cache_read_tokens, 100);
+        assert_eq!(entry.cache_creation_tokens, 0);
+        assert_eq!(entry.thinking_tokens, 0);
+        assert_eq!(entry.source, Some("codex".into()));
+        assert_eq!(entry.message_id, Some("session-001".to_string()));
     }
 
     #[test]
@@ -278,8 +268,9 @@ mod tests {
             .parse_file(&fixture_path("sample-session.jsonl"))
             .unwrap();
 
-        // Invalid JSON line and other event types should be skipped
-        assert_eq!(entries.len(), 2);
+        // Invalid JSON line and other event types should be skipped;
+        // only one entry (last cumulative total) should remain.
+        assert_eq!(entries.len(), 1);
     }
 
     #[test]
