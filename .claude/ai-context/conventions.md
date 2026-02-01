@@ -21,8 +21,6 @@ RED → GREEN → REFACTOR
 ```rust
 #[test]
 fn test_parse_file_valid_jsonl() { ... }
-
-insta::assert_debug_snapshot!(result);
 ```
 Location: `#[cfg(test)]` in same file
 Fixtures: `tests/fixtures/`
