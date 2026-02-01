@@ -2,10 +2,10 @@
 name = "toktrack"
 version = "0.1.23"
 edition = "2021"
-description = "Ultra-fast AI CLI token usage tracker"
+description = "Ultra-fast token & cost tracker for Claude Code, Codex CLI, and Gemini CLI"
 license = "MIT"
 repository = "https://github.com/mag123c/toktrack"
-keywords = ["cli", "token", "usage", "claude", "ai"]
+keywords = ["claude-code", "token-tracker", "ai-cost", "tui", "llm"]
 categories = ["command-line-utilities"]
 
 [dependencies]

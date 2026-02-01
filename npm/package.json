@@ -1,7 +1,7 @@
 {
   "name": "toktrack",
   "version": "0.1.23",
-  "description": "Ultra-fast AI CLI token usage tracker",
+  "description": "Ultra-fast token & cost tracker for Claude Code, Codex CLI, and Gemini CLI",
   "bin": {
     "toktrack": "./bin/run.js"
   },

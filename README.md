@@ -13,11 +13,13 @@
 
 **English** | [한국어](README.ko.md)
 
-Ultra-fast AI CLI token usage tracker. Built with Rust + simd-json + ratatui.
+Track token usage and costs across **all your AI coding CLIs** — Claude Code, Codex CLI, and Gemini CLI — in one dashboard.
+
+Built with Rust + simd-json + ratatui for ultra-fast performance.
 
 ![toktrack overview](demo.gif)
 
-> Scanning 2,000+ session files (3 GB) took over 40 seconds with existing tools — toktrack does it in ~1 second.
+> *"How much am I spending on Claude Code?"* — If you've ever wondered, toktrack gives you the answer in under a second. Scanning 2,000+ session files (3 GB) took over 40 seconds with existing tools — toktrack does it in ~1 second.
 
 ## Features
 

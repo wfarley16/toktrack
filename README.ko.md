@@ -7,11 +7,13 @@
 
 [English](README.md) | **한국어**
 
-Rust로 만든 초고속 AI CLI 토큰 사용량 트래커. simd-json + ratatui 기반.
+**모든 AI 코딩 CLI**의 토큰 사용량과 비용을 한 곳에서 — Claude Code, Codex CLI, Gemini CLI 통합 대시보드.
+
+Rust + simd-json + ratatui 기반 초고속 성능.
 
 ![toktrack overview](demo.gif)
 
-> 기존 도구로 2,000개 이상의 세션 파일(3 GB)을 스캔하면 40초 이상 걸렸습니다 — toktrack은 ~1초면 됩니다.
+> *"Claude Code에 얼마나 쓰고 있지?"* — 궁금했다면, toktrack이 1초 안에 답을 줍니다. 기존 도구로 2,000개 이상의 세션 파일(3 GB)을 스캔하면 40초 이상 걸렸습니다 — toktrack은 ~1초면 됩니다.
 
 ## 주요 기능
 
