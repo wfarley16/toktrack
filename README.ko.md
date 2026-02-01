@@ -17,7 +17,7 @@ Rust + simd-json + ratatui 기반 초고속 성능.
 
 ## 주요 기능
 
-- **초고속 파싱** — simd-json + rayon 병렬 처리 (~2 GiB/s 처리량)
+- **초고속 파싱** — simd-json + rayon 병렬 처리 (~3 GiB/s 처리량)
 - **TUI 대시보드** — 4개 뷰 (Overview, Models, Daily, Stats), 일별/주별/월별 집계
 - **CLI 명령어** — `daily`, `weekly`, `monthly`, `stats` (JSON 출력 지원)
 - **멀티 CLI 지원** — Claude Code, Codex CLI, Gemini CLI 한 곳에서
@@ -118,8 +118,8 @@ toktrack stats --json
 
 | 모드 | 시간 |
 |------|------|
-| 콜드 스타트 (캐시 없음) | **~1.2초** |
-| 웜 스타트 (캐시 있음) | **~0.05초** |
+| 콜드 스타트 (캐시 없음) | **~1.0초** |
+| 웜 스타트 (캐시 있음) | **~0.04초** |
 
 > Apple Silicon 기준 (9,000+ 파일 / 3.4 GB).
 
@@ -209,7 +209,6 @@ cargo bench   # 벤치마크 실행
 
 ## 로드맵
 
-- [ ] **성능 개선** — 3GB+ 데이터셋 콜드 스타트 1초 이내 목표
 - [ ] **OpenCode 지원**
 
 ## 기여하기

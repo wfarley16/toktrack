@@ -69,7 +69,7 @@ trait CLIParser: Send + Sync {
 | Zero-copy serde | `&'a str` borrowed, no String alloc | ~1.0 GiB/s |
 | In-place buffer | `&mut [u8]` to simd-json | |
 | SIMD parsing | simd-json AVX2/NEON | |
-| rayon parallel | `parse_all()` file-level parallel | ~2.0 GiB/s |
+| rayon parallel | `parse_all()` file-level parallel | ~3.0 GiB/s |
 
 ## Cache (~/.toktrack/)
 ```
@@ -81,7 +81,7 @@ cache/
 ## Deps
 ```toml
 simd-json, ratatui, crossterm, clap, rayon, chrono, directories, serde, reqwest, tokio, fs2
-dev: insta, criterion, tempfile
+dev: criterion, tempfile
 ```
 
 ## Pre-commit

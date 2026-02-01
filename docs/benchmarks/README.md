@@ -2,21 +2,22 @@
 
 Performance benchmarks for toktrack's JSONL parser.
 
-## Latest (Phase 1 - simd-json baseline)
+## Latest (Phase 2 - rayon parallel)
 
 | Metric | toktrack | ccusage | Speedup |
 |--------|----------|---------|---------|
-| Time (2.9GB) | 4.7s | 40.3s | **8.5x** |
-| Throughput | 628 MiB/s | ~73 MiB/s | - |
+| Time (3.4GB, 2772 files) | ~1.0s | 40.3s | **~40x** |
+| Throughput | ~3 GiB/s | ~73 MiB/s | - |
 
-> Rust + simd-json vs TypeScript/Node.js. 병렬 처리 등 추가 최적화 미적용.
+> Rust + simd-json + rayon parallel on Apple Silicon. Measured 2026-02-01.
 
 ## Dataset
 
-- **Size**: 2.9 GB
-- **Files**: 2,046 JSONL files
+- **Size**: 3.4 GB
+- **Files**: 2,772 JSONL files
 - **Location**: `~/.claude/projects/`
 
 ## Phase History
 
-- [Phase 1: Baseline](./phase-1-baseline.md) - simd-json sequential parsing
+- [Phase 1: Baseline](./phase-1-baseline.md) - simd-json sequential parsing (4.7s / 628 MiB/s on 2.9GB)
+- Phase 2: rayon parallel - file-level parallelism (~1.0s / ~3 GiB/s on 3.4GB)

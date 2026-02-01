@@ -5,7 +5,7 @@
 [![npm](https://img.shields.io/npm/v/toktrack)](https://www.npmjs.com/package/toktrack)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/mag123c/toktrack/blob/main/LICENSE)
 
-Ultra-fast AI CLI token usage tracker. Built with Rust + simd-json + ratatui.
+Ultra-fast token & cost tracker for Claude Code, Codex CLI, and Gemini CLI. Built with Rust + simd-json + ratatui.
 
 ![toktrack overview](https://raw.githubusercontent.com/mag123c/toktrack/main/demo.gif)
 
@@ -23,7 +23,7 @@ npm install -g toktrack
 
 ## Features
 
-- **Ultra-Fast Parsing** — simd-json + rayon parallel processing (~2 GiB/s throughput)
+- **Ultra-Fast Parsing** — simd-json + rayon parallel processing (~3 GiB/s throughput)
 - **TUI Dashboard** — 4 views (Overview, Models, Daily, Stats) with daily/weekly/monthly breakdown
 - **Multi-CLI Support** — Claude Code, Codex CLI, Gemini CLI
 - **CLI Commands** — `daily`, `weekly`, `monthly`, `stats` with JSON output
@@ -60,8 +60,8 @@ npx toktrack stats --json
 
 | Mode | Time |
 |------|------|
-| Cold start (no cache) | **~1.2s** |
-| Warm start (cached) | **~0.05s** |
+| Cold start (no cache) | **~1.0s** |
+| Warm start (cached) | **~0.04s** |
 
 > Measured on Apple Silicon (9,000+ files / 3.4 GB).
 

@@ -23,7 +23,7 @@ Built with Rust + simd-json + ratatui for ultra-fast performance.
 
 ## Features
 
-- **Ultra-Fast Parsing** — simd-json + rayon parallel processing (~2 GiB/s throughput)
+- **Ultra-Fast Parsing** — simd-json + rayon parallel processing (~3 GiB/s throughput)
 - **TUI Dashboard** — 4 views (Overview, Models, Daily, Stats) with daily/weekly/monthly breakdown
 - **CLI Commands** — `daily`, `weekly`, `monthly`, `stats` with JSON output support
 - **Multi-CLI Support** — Claude Code, Codex CLI, Gemini CLI in one place
@@ -124,8 +124,8 @@ toktrack stats --json
 
 | Mode | Time |
 |------|------|
-| Cold start (no cache) | **~1.2s** |
-| Warm start (cached) | **~0.05s** |
+| Cold start (no cache) | **~1.0s** |
+| Warm start (cached) | **~0.04s** |
 
 > Measured on Apple Silicon (9,000+ files / 3.4 GB).
 
@@ -215,7 +215,6 @@ cargo bench   # Benchmarks
 
 ## Roadmap
 
-- [ ] **Performance** — Target sub-1s cold start for 3GB+ datasets
 - [ ] **OpenCode support**
 
 ## Contributing
