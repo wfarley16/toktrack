@@ -13,8 +13,8 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
+      release_created: ${{ steps.release.outputs.release_created || steps.release-post-merge.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name || steps.release-post-merge.outputs.tag_name }}
     steps:
       - uses: actions/checkout@v4
 
@@ -25,14 +25,36 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-      # Auto-merge release PR when CI passes
-      - name: Enable auto-merge for Release PR
+      # Auto-merge release PR and wait for completion
+      # GITHUB_TOKEN merges don't trigger new push events, so we handle
+      # the post-merge release creation within this same workflow run.
+      - name: Auto-merge Release PR
+        id: merge
         if: steps.release.outputs.pr
         run: |
           PR_NUMBER=$(echo '${{ steps.release.outputs.pr }}' | jq -r '.number')
           gh pr merge "$PR_NUMBER" --auto --squash
+
+          for i in $(seq 1 120); do
+            STATE=$(gh pr view "$PR_NUMBER" --json state -q '.state')
+            if [ "$STATE" = "MERGED" ]; then
+              echo "merged=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "merged=false" >> "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # After merge, run release-please again to create the tag and release
+      - uses: googleapis/release-please-action@v4
+        id: release-post-merge
+        if: steps.merge.outputs.merged == 'true'
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
 
   build-and-publish:
     needs: release-please
