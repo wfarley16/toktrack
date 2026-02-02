@@ -34,12 +34,6 @@ npx toktrack
 bunx toktrack
 ```
 
-### Cargo
-
-```bash
-cargo install toktrack
-```
-
 ### 소스에서 설치
 
 ```bash

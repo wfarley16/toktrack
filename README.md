@@ -40,12 +40,6 @@ npx toktrack
 bunx toktrack
 ```
 
-### Cargo
-
-```bash
-cargo install toktrack
-```
-
 ### From Source
 
 ```bash
