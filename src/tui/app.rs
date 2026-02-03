@@ -25,7 +25,7 @@ use super::widgets::{
     spinner::{LoadingStage, Spinner},
     stats::StatsView,
     tabs::Tab,
-    update_popup::{UpdateMessagePopup, UpdatePopup},
+    update_popup::{DimOverlay, UpdateMessagePopup, UpdatePopup},
 };
 
 /// Configuration for TUI startup
@@ -360,16 +360,19 @@ impl Widget for &App {
         // Render update overlay on top of everything (works in both Loading and Ready states)
         match &self.update_status {
             UpdateStatus::Available { current, latest } => {
+                DimOverlay.render(area, buf);
                 let popup_area = UpdatePopup::centered_area(area);
                 UpdatePopup::new(current, latest, self.update_selection, self.theme)
                     .render(popup_area, buf);
             }
             UpdateStatus::Updating => {
+                DimOverlay.render(area, buf);
                 let popup_area = UpdateMessagePopup::centered_area(area);
                 UpdateMessagePopup::new("Running npm update -g toktrack...", self.theme.date())
                     .render(popup_area, buf);
             }
             UpdateStatus::UpdateDone { success, message } => {
+                DimOverlay.render(area, buf);
                 let popup_area = UpdateMessagePopup::centered_area(area);
                 let color = if *success {
                     self.theme.bar()

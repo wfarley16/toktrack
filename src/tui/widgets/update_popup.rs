@@ -2,13 +2,29 @@
 
 use ratatui::{
     buffer::Buffer,
-    layout::{Alignment, Constraint, Layout, Rect},
+    layout::{Alignment, Constraint, Layout, Position, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Widget},
 };
 
 use crate::tui::theme::Theme;
+
+/// Full-screen dim overlay for modal popups
+pub struct DimOverlay;
+
+impl Widget for DimOverlay {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        for y in area.y..area.y + area.height {
+            for x in area.x..area.x + area.width {
+                if let Some(cell) = buf.cell_mut(Position { x, y }) {
+                    cell.set_fg(Color::DarkGray);
+                    cell.set_bg(Color::Black);
+                }
+            }
+        }
+    }
+}
 
 /// Width and height of the update popup
 const POPUP_WIDTH: u16 = 48;
@@ -219,6 +235,30 @@ impl<'a> Widget for UpdateMessagePopup<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_dim_overlay_sets_colors() {
+        let area = Rect::new(0, 0, 10, 5);
+        let mut buf = Buffer::empty(area);
+        // Write some content first
+        buf.set_string(
+            0,
+            0,
+            "Hello",
+            Style::default().fg(Color::White).bg(Color::Blue),
+        );
+
+        DimOverlay.render(area, &mut buf);
+
+        // Every cell should have DarkGray fg and Black bg
+        for y in 0..5 {
+            for x in 0..10 {
+                let cell = buf.cell(Position { x, y }).unwrap();
+                assert_eq!(cell.fg, Color::DarkGray);
+                assert_eq!(cell.bg, Color::Black);
+            }
+        }
+    }
 
     #[test]
     fn test_update_popup_centered_area() {
