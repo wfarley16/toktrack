@@ -172,6 +172,8 @@ The next run will rebuild the cache from available session data.
 
 **Warm path** (cached): Load cached summaries → parse only recent files (24h mtime filter) → merge → aggregate.
 
+> **Deep Dive:** [I Rewrote a Node.js CLI in Rust — It Went from 43s to 1s](https://medium.com/@diehreo/i-rewrote-a-node-js-cli-in-rust-it-went-from-43s-to-1s-c13e38e7fe88) | [한국어](https://mag1c.tistory.com/601)
+
 ## Development
 
 ```bash

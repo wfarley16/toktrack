@@ -166,6 +166,8 @@ rm -rf ~/.toktrack/cache/
 
 **웜 경로** (캐시 있음): 캐시된 요약 로드 → 최근 파일만 파싱 (24시간 mtime 필터) → 병합 → 집계.
 
+> **Deep Dive:** [Node.js CLI를 Rust로 재작성 — 43초에서 1초로](https://mag1c.tistory.com/601) | [English](https://medium.com/@diehreo/i-rewrote-a-node-js-cli-in-rust-it-went-from-43s-to-1s-c13e38e7fe88)
+
 ## 개발
 
 ```bash
