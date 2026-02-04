@@ -3,93 +3,38 @@
 Ultra-fast AI CLI token usage tracker. Rust + simd-json + ratatui.
 
 ## Quick Start
-
 ```bash
 cargo build --release
 ./target/release/toktrack
 ```
 
 ## Context
-
 | File | Content |
 |------|---------|
-| [architecture.md](.claude/ai-context/architecture.md) | Layers, paths, traits, data flow |
-| [conventions.md](.claude/ai-context/conventions.md) | Naming, TDD, error handling, commits |
+| `.claude/ai-context/architecture.md` | Layers, paths, traits, data flow |
+| `.claude/ai-context/conventions.md` | Naming, TDD, error handling, commits |
 
-## Dev Workflow
-
+## Workflow
 ```
-/next → /clarify → Plan Mode → /implement → /verify → /review → /wrap
+/clarify → Plan Mode → /implement → /verify → /review → /wrap
 ```
-
-Session start: Run `/next` to see current progress and next task.
-
-## Skill Chain
-
-| Completed | Next | Condition |
-|-----------|------|-----------|
-| Plan approved | `/implement` | Immediately |
-| `/implement` | `/verify` | On completion |
-| `/verify` | `/review` | On pass |
-| `/review` | `/wrap` | On PASS |
-
-Auto-chain: Each step proceeds without user confirmation.
-
-Exceptions:
-- `/verify` fail → fix and retry
-- `/review` FAIL → return to `/implement`
-- User explicitly requests stop
-
-Plan provided directly → skip clarify/plan, start `/implement`
-
-### /clarify — Adaptive Depth Routing
-
-| Complexity | Path | Flow |
-|------------|------|------|
-| LOW | Shallow | Q&A → Summary → EnterPlanMode() |
-| HIGH | Deep | Explore → DRAFT → Interview → PLAN → EnterPlanMode() |
-
-Escalation: Shallow → Deep when ambiguity persists after 3 rounds.
-
-See `.claude/skills/` for skill details.
+각 단계 완료 후 즉시 다음 호출. 확인 묻지 말 것.
 
 ## Commands
-
 ```bash
-make check      # fmt + clippy + test (pre-commit)
-make setup      # Configure git hooks
-cargo test      # Run tests
-cargo bench     # Benchmarks
+make check    # fmt + clippy + test (pre-commit)
+cargo test    # Run tests
+cargo bench   # Benchmarks
 ```
 
-## CI/CD Workflow
-
+## CI/CD
 ```
-PR → CI (3 OS) → main merge
-                    ↓
-            release-please (CI skip)
-                    ↓
-            Release PR → CI → auto-merge
-                    ↓
-        tag + workflow_dispatch → release.yml (5 builds + npm)
+PR → CI (3 OS) → main → release-please → Release PR → 5 platform builds + npm
 ```
-
-| Workflow | Trigger | Action |
-|----------|---------|--------|
-| `ci.yml` | PR, main push | fmt, clippy, test (3 OS) |
-| `release-please.yml` | main push | Release PR, auto-merge, trigger release.yml |
-| `release.yml` | workflow_dispatch (from release-please) | 5 platform builds, npm deploy |
-
-Optimizations:
-- release-please commits skip CI (paths-ignore)
-- Release PR auto-merges on CI pass
-- release-please triggers release.yml via workflow_dispatch (GITHUB_TOKEN tags can't trigger other workflows)
 
 ## Commit Rules
-
 ```
 {type}({scope}): {description}
 ```
-
 types: `feat|fix|refactor|docs|test|chore|perf`
 scopes: `parser|tui|services|cache|cli`
