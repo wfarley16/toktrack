@@ -1,5 +1,6 @@
 #!/bin/bash
-# Plan Mode 완료 후 /implement 스킬 사용 권장
+# Plan Mode 완료 후 /implement 스킬 사용 안내 (강제 아님)
+# 코드 구현 작업일 때만 TDD 워크플로우 권장
 set -e
 INPUT=$(cat)
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // "unknown"')
@@ -10,11 +11,12 @@ IMPLEMENT_MARKER="/tmp/toktrack-implement-started-$SESSION_ID"
 [ ! -f "$MARKER" ] && exit 0
 [ -f "$IMPLEMENT_MARKER" ] && exit 0
 
+# 안내만 제공 (강제 아님)
 cat << 'EOF'
 {
   "hookSpecificOutput": {
     "hookEventName": "UserPromptSubmit",
-    "additionalContext": "## Plan Mode 완료 - /implement 실행 필수\n\nPlan이 승인되었습니다. 반드시 `/implement` 스킬을 사용하여 TDD 방식(RED→GREEN→REFACTOR)으로 구현을 진행하세요.\n\n```\n/implement\n```"
+    "additionalContext": "## Plan Mode 완료\n\n코드 구현 작업이라면 `/implement` 스킬로 TDD 방식 권장.\n문서/마케팅 작업은 직접 진행 가능."
   }
 }
 EOF
