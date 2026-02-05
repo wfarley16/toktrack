@@ -13,7 +13,7 @@ use super::heatmap::Heatmap;
 use super::legend::Legend;
 use super::tabs::{Tab, TabBar};
 use crate::tui::theme::Theme;
-use crate::types::TotalSummary;
+use crate::types::{SourceUsage, TotalSummary};
 
 /// Format a number with thousand separators (e.g., 1234567 -> "1,234,567")
 /// Optimized: no Vec<char> allocation since digits are ASCII
@@ -42,6 +42,7 @@ pub fn format_number(n: u64) -> String {
 pub struct OverviewData<'a> {
     pub total: &'a TotalSummary,
     pub daily_tokens: &'a [(NaiveDate, u64)],
+    pub source_usage: &'a [SourceUsage],
 }
 
 /// Maximum content width for Overview (keeps layout clean on wide terminals)
@@ -84,21 +85,47 @@ impl Widget for Overview<'_> {
             height: area.height,
         };
 
+        // Determine source section height (1 row per source, 0-4 sources shown)
+        let source_rows = self.data.source_usage.len().min(4) as u16;
+        let show_sources = source_rows > 0;
+
         // Fixed-height layout (no expansion, keybindings stay with content):
         // - Top padding (1) + Tabs (1) + Separator (1) + Hero (3) + Sub-stats (1) + Blank (1)
-        // - Heatmap (10: 7 rows grid + month labels + blank + legend) + Separator (1) + Keybindings (1) = 20 total
-        let chunks = Layout::vertical([
-            Constraint::Length(1),  // Top padding
-            Constraint::Length(1),  // Tabs
-            Constraint::Length(1),  // Separator
-            Constraint::Length(3),  // Hero stat
-            Constraint::Length(1),  // Sub-stats (Cost only)
-            Constraint::Length(1),  // Blank
-            Constraint::Length(10), // Heatmap (7 rows grid) + month labels + blank + legend
-            Constraint::Length(1),  // Separator
-            Constraint::Length(1),  // Keybindings
-        ])
-        .split(centered_area);
+        // - [Sources section if present]
+        // - Heatmap (10: 7 rows grid + month labels + blank + legend) + Separator (1) + Keybindings (1)
+        let chunks = if show_sources {
+            Layout::vertical([
+                Constraint::Length(1),           // 0: Top padding
+                Constraint::Length(1),           // 1: Tabs
+                Constraint::Length(1),           // 2: Separator
+                Constraint::Length(3),           // 3: Hero stat
+                Constraint::Length(1),           // 4: Sub-stats (Cost only)
+                Constraint::Length(1),           // 5: Blank
+                Constraint::Length(1),           // 6: "Sources:" label
+                Constraint::Length(source_rows), // 7: Source bars
+                Constraint::Length(1),           // 8: Blank
+                Constraint::Length(10),          // 9: Heatmap
+                Constraint::Length(1),           // 10: Separator
+                Constraint::Length(1),           // 11: Keybindings
+            ])
+            .split(centered_area)
+        } else {
+            Layout::vertical([
+                Constraint::Length(1),  // 0: Top padding
+                Constraint::Length(1),  // 1: Tabs
+                Constraint::Length(1),  // 2: Separator
+                Constraint::Length(3),  // 3: Hero stat
+                Constraint::Length(1),  // 4: Sub-stats (Cost only)
+                Constraint::Length(1),  // 5: Blank
+                Constraint::Length(0),  // 6: (empty, Sources label placeholder)
+                Constraint::Length(0),  // 7: (empty, Source bars placeholder)
+                Constraint::Length(0),  // 8: (empty, Blank placeholder)
+                Constraint::Length(10), // 9: Heatmap
+                Constraint::Length(1),  // 10: Separator
+                Constraint::Length(1),  // 11: Keybindings
+            ])
+            .split(centered_area)
+        };
 
         // Top padding (chunks[0]) - nothing to render
 
@@ -116,14 +143,21 @@ impl Widget for Overview<'_> {
 
         // Blank line (chunks[5]) - nothing to render
 
+        // Render sources section if present
+        if show_sources {
+            self.render_sources_label(chunks[6], buf);
+            self.render_source_bars(chunks[7], buf);
+            // chunks[8] is blank
+        }
+
         // Render heatmap with legend
-        self.render_heatmap_section(chunks[6], buf);
+        self.render_heatmap_section(chunks[9], buf);
 
         // Render separator
-        self.render_separator(chunks[7], buf);
+        self.render_separator(chunks[10], buf);
 
         // Render keybindings
-        self.render_keybindings(chunks[8], buf);
+        self.render_keybindings(chunks[11], buf);
     }
 }
 
@@ -177,6 +211,84 @@ impl Overview<'_> {
         .alignment(Alignment::Center);
 
         stats.render(area, buf);
+    }
+
+    fn render_sources_label(&self, area: Rect, buf: &mut Buffer) {
+        let label = Paragraph::new(Line::from(Span::styled(
+            "Sources:",
+            Style::default()
+                .fg(self.theme.text())
+                .add_modifier(Modifier::BOLD),
+        )))
+        .alignment(Alignment::Center);
+
+        label.render(area, buf);
+    }
+
+    fn render_source_bars(&self, area: Rect, buf: &mut Buffer) {
+        if self.data.source_usage.is_empty() {
+            return;
+        }
+
+        let max_tokens = self
+            .data
+            .source_usage
+            .iter()
+            .map(|s| s.total_tokens)
+            .max()
+            .unwrap_or(1);
+
+        // Bar rendering config
+        const SOURCE_NAME_WIDTH: usize = 12;
+        const BAR_WIDTH: usize = 20;
+        const TOTAL_LINE_WIDTH: usize = SOURCE_NAME_WIDTH + 2 + BAR_WIDTH + 2 + 15; // name + "  " + bar + "  " + count
+
+        // Calculate centering offset
+        let x_offset = area.width.saturating_sub(TOTAL_LINE_WIDTH as u16) / 2;
+
+        for (i, source) in self.data.source_usage.iter().take(4).enumerate() {
+            let y = area.y + i as u16;
+            if y >= area.y + area.height {
+                break;
+            }
+
+            // Source name (left-padded, fixed width)
+            let name = if source.source.len() > SOURCE_NAME_WIDTH - 1 {
+                format!(
+                    "{}…",
+                    source
+                        .source
+                        .chars()
+                        .take(SOURCE_NAME_WIDTH - 2)
+                        .collect::<String>()
+                )
+            } else {
+                source.source.clone()
+            };
+            let name_display = format!("{:>width$}", name, width = SOURCE_NAME_WIDTH);
+
+            // Bar representation
+            let ratio = source.total_tokens as f64 / max_tokens as f64;
+            let filled = (ratio * BAR_WIDTH as f64).round() as usize;
+            let filled = filled.min(BAR_WIDTH);
+            let bar = format!("{}{}", "█".repeat(filled), "░".repeat(BAR_WIDTH - filled));
+
+            // Token count
+            let count_str = format_number(source.total_tokens);
+
+            // Build the line
+            let spans = vec![
+                Span::styled(name_display, Style::default().fg(self.theme.muted())),
+                Span::raw("  "),
+                Span::styled(bar, Style::default().fg(self.theme.bar())),
+                Span::raw("  "),
+                Span::styled(count_str, Style::default().fg(self.theme.text())),
+            ];
+
+            // Render centered
+            let line = Line::from(spans);
+            buf.set_line(area.x + x_offset, y, &line, area.width - x_offset);
+        }
     }
 
     fn render_heatmap_section(&self, area: Rect, buf: &mut Buffer) {

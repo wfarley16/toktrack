@@ -240,6 +240,7 @@ mod tests {
             message_id: None,
             request_id: None,
             source: None,
+            provider: None,
         }
     }
 
@@ -308,6 +309,7 @@ mod tests {
                 message_id: None,
                 request_id: None,
                 source: None,
+                provider: None,
             },
             UsageEntry {
                 timestamp: today.and_hms_opt(12, 0, 0).unwrap().and_utc(),
@@ -321,6 +323,7 @@ mod tests {
                 message_id: None,
                 request_id: None,
                 source: None,
+                provider: None,
             },
         ];
 
@@ -406,6 +409,7 @@ mod tests {
             message_id: None,
             request_id: None,
             source: None,
+            provider: None,
         }];
 
         let (result, _warning) = service.load_or_compute("claude-code", &entries).unwrap();
@@ -472,6 +476,7 @@ mod tests {
             message_id: None,
             request_id: None,
             source: None,
+            provider: None,
         }];
 
         let (result, _warning) = service.load_or_compute("claude-code", &entries).unwrap();

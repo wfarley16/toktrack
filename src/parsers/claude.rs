@@ -97,6 +97,7 @@ impl ClaudeCodeParser {
             message_id: message.id.map(String::from),
             request_id: data.request_id.map(String::from),
             source: Some("claude".into()),
+            provider: None,
         })
     }
 }

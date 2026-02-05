@@ -198,9 +198,18 @@ impl PricingService {
             + (entry.output_tokens as f64 * output_cost)
     }
 
-    /// Get pricing for a model (exact match only)
+    /// Get pricing for a model (tries exact match first, then normalized)
     pub fn get_pricing(&self, model: &str) -> Option<&ModelPricing> {
-        self.cache.models.get(model)
+        // Try exact match first
+        if let Some(pricing) = self.cache.models.get(model) {
+            return Some(pricing);
+        }
+        // Try normalized name
+        let normalized = super::normalize_model_name(model);
+        if normalized != model {
+            return self.cache.models.get(&normalized);
+        }
+        None
     }
 
     /// Force refresh pricing data
@@ -245,6 +254,7 @@ mod tests {
             message_id: None,
             request_id: None,
             source: None,
+            provider: None,
         }
     }
 
@@ -425,6 +435,26 @@ mod tests {
         let pricing = service.get_pricing("nonexistent-model");
 
         assert!(pricing.is_none());
+    }
+
+    #[test]
+    fn test_get_pricing_normalized_date_suffix() {
+        let (service, _temp) = create_test_service();
+        // claude-sonnet-4 is in cache, try with date suffix
+        let pricing = service.get_pricing("claude-sonnet-4-20250514");
+
+        assert!(pricing.is_some());
+        let p = pricing.unwrap();
+        assert!((p.input_cost_per_token.unwrap() - 0.000003).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_get_pricing_normalized_dot_to_hyphen() {
+        let (service, _temp) = create_test_service();
+        // claude-opus-4 is in cache, try with dot version
+        let pricing = service.get_pricing("claude-opus-4");
+
+        assert!(pricing.is_some());
     }
 
     // ========== PricingCache tests ==========

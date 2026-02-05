@@ -16,6 +16,8 @@ struct OpenCodeMessage {
     session_id: String,
     #[serde(rename = "modelID")]
     model_id: Option<String>,
+    #[serde(rename = "providerID")]
+    provider_id: Option<String>,
     time: OpenCodeTime,
     tokens: Option<OpenCodeTokens>,
     cost: Option<f64>,
@@ -125,6 +127,7 @@ impl CLIParser for OpenCodeParser {
             message_id: Some(message.id),
             request_id: Some(message.session_id),
             source: Some("opencode".into()),
+            provider: message.provider_id,
         };
 
         Ok(vec![entry])

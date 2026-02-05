@@ -15,7 +15,7 @@ use super::theme::Theme;
 use crate::parsers::ParserRegistry;
 use crate::services::update_checker::{check_for_update, execute_update, UpdateCheckResult};
 use crate::services::{Aggregator, DailySummaryCacheService, PricingService};
-use crate::types::{CacheWarning, StatsData, TotalSummary};
+use crate::types::{CacheWarning, SourceUsage, StatsData, TotalSummary};
 
 use super::widgets::{
     daily::{DailyData, DailyView, DailyViewMode},
@@ -55,6 +55,8 @@ pub struct AppData {
     pub models_data: ModelsData,
     pub daily_data: DailyData,
     pub stats_data: StatsData,
+    /// Usage breakdown by source CLI
+    pub source_usage: Vec<SourceUsage>,
     /// Cache warning indicator for display in TUI
     #[allow(dead_code)] // Reserved for warning indicator feature
     pub cache_warning: Option<CacheWarning>,
@@ -316,6 +318,7 @@ impl Widget for &App {
                         let overview_data = OverviewData {
                             total: &data.total,
                             daily_tokens: &data.daily_tokens,
+                            source_usage: &data.source_usage,
                         };
                         let overview = Overview::new(overview_data, today, self.theme)
                             .with_tab(self.current_tab);
@@ -396,6 +399,14 @@ pub fn run(config: TuiConfig) -> anyhow::Result<()> {
     result
 }
 
+/// Check if provider is GitHub Copilot (free service).
+fn is_copilot_provider(provider: Option<&str>) -> bool {
+    matches!(
+        provider,
+        Some("github-copilot") | Some("github-copilot-enterprise")
+    )
+}
+
 /// Load data synchronously (extracted for background thread).
 /// Uses cache-first strategy: warm path parses only recent files,
 /// cold path falls back to full parse_all().
@@ -432,6 +443,8 @@ fn load_warm_path(
     let since = std::time::SystemTime::now() - std::time::Duration::from_secs(24 * 3600);
 
     let mut all_summaries = Vec::new();
+    let mut source_stats: std::collections::HashMap<String, (u64, f64)> =
+        std::collections::HashMap::new();
     let mut cache_warning = None;
 
     for parser in registry.parsers() {
@@ -448,7 +461,10 @@ fn load_warm_path(
         let entries: Vec<_> = entries
             .into_iter()
             .map(|mut entry| {
-                if entry.cost_usd.is_none() {
+                // GitHub Copilot is free, override cost to 0
+                if is_copilot_provider(entry.provider.as_deref()) {
+                    entry.cost_usd = Some(0.0);
+                } else if entry.cost_usd.is_none() {
                     if let Some(p) = pricing {
                         entry.cost_usd = Some(p.calculate_cost(&entry));
                     }
@@ -462,6 +478,16 @@ fn load_warm_path(
             Ok((summaries, warning)) => {
                 if warning.is_some() && cache_warning.is_none() {
                     cache_warning = warning;
+                }
+                // Collect source stats from summaries
+                for s in &summaries {
+                    let tokens = s.total_input_tokens
+                        + s.total_output_tokens
+                        + s.total_cache_read_tokens
+                        + s.total_cache_creation_tokens;
+                    let stat = source_stats.entry(parser.name().to_string()).or_default();
+                    stat.0 = stat.0.saturating_add(tokens);
+                    stat.1 += s.total_cost_usd;
                 }
                 all_summaries.extend(summaries);
             }
@@ -480,8 +506,11 @@ fn load_warm_path(
         return load_cold_path(registry, Some(cache_service), pricing);
     }
 
-    all_summaries.sort_by_key(|s| s.date);
-    build_app_data_from_summaries(all_summaries, cache_warning)
+    // Merge summaries from different sources for the same date
+    let all_summaries = Aggregator::merge_by_date(all_summaries);
+
+    let source_usage = build_source_usage(source_stats);
+    build_app_data_from_summaries(all_summaries, source_usage, cache_warning)
 }
 
 /// Cold path: full parse_all() per parser + build cache for next run.
@@ -501,6 +530,8 @@ fn load_cold_path(
     };
 
     let mut all_summaries = Vec::new();
+    let mut source_stats: std::collections::HashMap<String, (u64, f64)> =
+        std::collections::HashMap::new();
     let mut cache_warning = None;
     let mut any_entries = false;
 
@@ -522,7 +553,10 @@ fn load_cold_path(
         let entries: Vec<_> = entries
             .into_iter()
             .map(|mut entry| {
-                if entry.cost_usd.is_none() {
+                // GitHub Copilot is free, override cost to 0
+                if is_copilot_provider(entry.provider.as_deref()) {
+                    entry.cost_usd = Some(0.0);
+                } else if entry.cost_usd.is_none() {
                     if let Some(p) = pricing_ref {
                         entry.cost_usd = Some(p.calculate_cost(&entry));
                     }
@@ -538,6 +572,16 @@ fn load_cold_path(
                     if warning.is_some() && cache_warning.is_none() {
                         cache_warning = warning;
                     }
+                    // Collect source stats from summaries
+                    for s in &summaries {
+                        let tokens = s.total_input_tokens
+                            + s.total_output_tokens
+                            + s.total_cache_read_tokens
+                            + s.total_cache_creation_tokens;
+                        let stat = source_stats.entry(parser.name().to_string()).or_default();
+                        stat.0 = stat.0.saturating_add(tokens);
+                        stat.1 += s.total_cost_usd;
+                    }
                     all_summaries.extend(summaries);
                     continue; // Used cache-backed summaries
                 }
@@ -552,20 +596,52 @@ fn load_cold_path(
         }
 
         // Cache unavailable: compute summaries directly from entries
-        all_summaries.extend(Aggregator::daily(&entries));
+        let summaries = Aggregator::daily(&entries);
+        // Collect source stats from summaries
+        for s in &summaries {
+            let tokens = s.total_input_tokens
+                + s.total_output_tokens
+                + s.total_cache_read_tokens
+                + s.total_cache_creation_tokens;
+            let stat = source_stats.entry(parser.name().to_string()).or_default();
+            stat.0 = stat.0.saturating_add(tokens);
+            stat.1 += s.total_cost_usd;
+        }
+        all_summaries.extend(summaries);
     }
 
     if !any_entries {
         return Err("No usage data found from any CLI".to_string());
     }
 
-    all_summaries.sort_by_key(|s| s.date);
-    build_app_data_from_summaries(all_summaries, cache_warning)
+    // Merge summaries from different sources for the same date
+    let all_summaries = Aggregator::merge_by_date(all_summaries);
+
+    let source_usage = build_source_usage(source_stats);
+    build_app_data_from_summaries(all_summaries, source_usage, cache_warning)
+}
+
+/// Convert source stats map to sorted SourceUsage vector.
+fn build_source_usage(
+    source_stats: std::collections::HashMap<String, (u64, f64)>,
+) -> Vec<SourceUsage> {
+    let mut result: Vec<SourceUsage> = source_stats
+        .into_iter()
+        .map(|(source, (total_tokens, total_cost_usd))| SourceUsage {
+            source,
+            total_tokens,
+            total_cost_usd,
+        })
+        .collect();
+    // Sort by total_tokens descending
+    result.sort_by(|a, b| b.total_tokens.cmp(&a.total_tokens));
+    result
 }
 
 /// Build AppData from DailySummary list (no raw entries needed).
 fn build_app_data_from_summaries(
     summaries: Vec<crate::types::DailySummary>,
+    source_usage: Vec<SourceUsage>,
     cache_warning: Option<CacheWarning>,
 ) -> Result<Box<AppData>, String> {
     let total = Aggregator::total_from_daily(&summaries);
@@ -594,6 +670,7 @@ fn build_app_data_from_summaries(
         models_data,
         daily_data,
         stats_data,
+        source_usage,
         cache_warning,
     }))
 }
@@ -725,6 +802,7 @@ mod tests {
                 models_data,
                 daily_data,
                 stats_data,
+                source_usage: vec![],
                 cache_warning: None,
             }),
         };
@@ -1051,6 +1129,7 @@ mod tests {
             models_data,
             daily_data,
             stats_data,
+            source_usage: vec![],
             cache_warning: None,
         })));
 
@@ -1198,5 +1277,27 @@ mod tests {
                 std::mem::discriminant(other)
             ),
         }
+    }
+
+    // ========== is_copilot_provider tests ==========
+
+    #[test]
+    fn test_is_copilot_provider_github_copilot() {
+        assert!(is_copilot_provider(Some("github-copilot")));
+    }
+
+    #[test]
+    fn test_is_copilot_provider_github_copilot_enterprise() {
+        assert!(is_copilot_provider(Some("github-copilot-enterprise")));
+    }
+
+    #[test]
+    fn test_is_copilot_provider_anthropic() {
+        assert!(!is_copilot_provider(Some("anthropic")));
+    }
+
+    #[test]
+    fn test_is_copilot_provider_none() {
+        assert!(!is_copilot_provider(None));
     }
 }

@@ -8,7 +8,7 @@ TUI[ratatui] → CLI[clap] → Services → Parsers[trait] → Cache
 ## Paths
 - `src/tui/` - TUI (app.rs, theme.rs, widgets/)
 - `src/cli/` - CLI commands
-- `src/services/` - aggregator, pricing, cache, update_checker
+- `src/services/` - aggregator, pricing, cache, update_checker, normalizer
 - `src/parsers/` - CLIParser trait + impls
 - `src/types/` - UsageEntry, errors
 
@@ -47,6 +47,7 @@ trait CLIParser: Send + Sync {
 | ClaudeCodeParser | JSONL | ~/.claude/projects/ | ✅ |
 | CodexParser | JSONL | ~/.codex/sessions/ | ✅ |
 | GeminiParser | JSON | ~/.gemini/tmp/*/chats/ | ✅ |
+| OpenCodeParser | JSON | ~/.local/share/opencode/storage/message/ | ✅ |
 
 ## Data Flow
 ```
@@ -62,6 +63,12 @@ trait CLIParser: Send + Sync {
 2. PricingService::new()                → network fallback
 3. cache.load_or_compute(entries)       → build cache
 4. Aggregator from summaries
+
+[Aggregation]
+- normalize_model_name()       → date suffix removal, dot→hyphen
+- Aggregator::merge_by_date()  → combine multi-source summaries
+- Aggregator::by_source()      → SourceUsage per CLI
+- is_copilot_provider()        → github-copilot cost=0
 ```
 
 ## Parser Optimizations

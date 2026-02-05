@@ -81,6 +81,9 @@ pub struct UsageEntry {
     pub request_id: Option<String>,
     #[serde(default)]
     pub source: Option<String>,
+    /// Provider ID (e.g., "anthropic", "github-copilot")
+    #[serde(default)]
+    pub provider: Option<String>,
 }
 
 impl UsageEntry {
@@ -146,6 +149,14 @@ pub struct TotalSummary {
     pub total_cost_usd: f64,
     pub entry_count: u64,
     pub day_count: u64,
+}
+
+/// Usage aggregated by source CLI (claude, opencode, gemini, etc.)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct SourceUsage {
+    pub source: String,
+    pub total_tokens: u64,
+    pub total_cost_usd: f64,
 }
 
 #[cfg(test)]
@@ -253,6 +264,7 @@ mod tests {
             message_id: None,
             request_id: None,
             source: None,
+            provider: None,
         };
         assert_eq!(entry.total_tokens(), 180);
     }
@@ -271,6 +283,7 @@ mod tests {
             message_id: None,
             request_id: None,
             source: Some("gemini".into()),
+            provider: None,
         };
         assert_eq!(entry.total_tokens(), 210);
     }
@@ -289,6 +302,7 @@ mod tests {
             message_id: Some("msg123".into()),
             request_id: Some("req456".into()),
             source: None,
+            provider: None,
         };
         assert_eq!(entry.dedup_hash(), Some("msg123:req456".into()));
     }
@@ -307,6 +321,7 @@ mod tests {
             message_id: None,
             request_id: Some("req456".into()),
             source: None,
+            provider: None,
         };
         assert_eq!(entry.dedup_hash(), None);
     }
@@ -326,6 +341,7 @@ mod tests {
             message_id: None,
             request_id: None,
             source: None,
+            provider: None,
         };
         usage.add(&entry, 0.01);
 

@@ -124,6 +124,7 @@ impl CLIParser for GeminiParser {
                 message_id: Some(msg.id),
                 request_id: Some(session.session_id.clone()),
                 source: Some("gemini".into()),
+                provider: None,
             });
         }
 

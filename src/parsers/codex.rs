@@ -151,6 +151,7 @@ impl CodexParser {
             message_id: session_id.clone(),
             request_id: None,
             source: Some("codex".into()),
+            provider: None,
         };
 
         ParseResult::Entry(entry)

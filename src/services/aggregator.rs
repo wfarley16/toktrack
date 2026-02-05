@@ -1,6 +1,7 @@
 //! Aggregator service for computing usage statistics
 
-use crate::types::{DailySummary, ModelUsage, TotalSummary, UsageEntry};
+use super::normalize_model_name;
+use crate::types::{DailySummary, ModelUsage, SourceUsage, TotalSummary, UsageEntry};
 use chrono::Datelike;
 use std::collections::{HashMap, HashSet};
 
@@ -54,7 +55,7 @@ impl Aggregator {
         for entry in entries {
             let date = entry.timestamp.date_naive();
             let cost = entry.cost_usd.unwrap_or(0.0);
-            let model_name = entry.model.as_deref().unwrap_or("unknown").to_string();
+            let model_name = normalize_model_name(entry.model.as_deref().unwrap_or("unknown"));
 
             let summary = daily_map.entry(date).or_insert_with(|| DailySummary {
                 date,
@@ -160,7 +161,7 @@ impl Aggregator {
         let mut model_map: HashMap<String, ModelUsage> = HashMap::new();
 
         for entry in entries {
-            let model_name = entry.model.as_deref().unwrap_or("unknown").to_string();
+            let model_name = normalize_model_name(entry.model.as_deref().unwrap_or("unknown"));
             let cost = entry.cost_usd.unwrap_or(0.0);
 
             let usage = model_map.entry(model_name).or_default();
@@ -246,6 +247,67 @@ impl Aggregator {
         summary.day_count = dates.len() as u64;
         summary
     }
+
+    /// Aggregate usage by source CLI (claude, opencode, gemini, etc.)
+    pub fn by_source(entries: &[UsageEntry]) -> Vec<SourceUsage> {
+        let mut source_map: HashMap<String, (u64, f64)> = HashMap::new();
+
+        for entry in entries {
+            let source = entry.source.as_deref().unwrap_or("unknown").to_string();
+            let total_tokens = entry.input_tokens
+                + entry.output_tokens
+                + entry.cache_read_tokens
+                + entry.cache_creation_tokens
+                + entry.thinking_tokens;
+            let cost = entry.cost_usd.unwrap_or(0.0);
+
+            let entry_stats = source_map.entry(source).or_insert((0, 0.0));
+            entry_stats.0 = entry_stats.0.saturating_add(total_tokens);
+            entry_stats.1 += cost;
+        }
+
+        let mut result: Vec<SourceUsage> = source_map
+            .into_iter()
+            .map(|(source, (total_tokens, total_cost_usd))| SourceUsage {
+                source,
+                total_tokens,
+                total_cost_usd,
+            })
+            .collect();
+
+        // Sort by total_tokens descending
+        result.sort_by(|a, b| b.total_tokens.cmp(&a.total_tokens));
+        result
+    }
+
+    /// Merge DailySummaries with the same date.
+    /// Useful when combining summaries from multiple CLI sources.
+    pub fn merge_by_date(summaries: Vec<DailySummary>) -> Vec<DailySummary> {
+        if summaries.is_empty() {
+            return Vec::new();
+        }
+
+        let mut date_map: HashMap<chrono::NaiveDate, DailySummary> = HashMap::new();
+
+        for summary in summaries {
+            let target = date_map
+                .entry(summary.date)
+                .or_insert_with(|| DailySummary {
+                    date: summary.date,
+                    total_input_tokens: 0,
+                    total_output_tokens: 0,
+                    total_cache_read_tokens: 0,
+                    total_cache_creation_tokens: 0,
+                    total_cost_usd: 0.0,
+                    models: HashMap::new(),
+                });
+            accumulate_summary(target, &summary);
+        }
+
+        let mut result: Vec<DailySummary> = date_map.into_values().collect();
+        result.sort_by_key(|s| s.date);
+        result
+    }
 }
 
 #[cfg(test)]
@@ -274,6 +336,7 @@ mod tests {
             message_id: None,
             request_id: None,
             source: None,
+            provider: None,
         }
     }
 
@@ -301,6 +364,7 @@ mod tests {
             message_id: None,
             request_id: None,
             source: None,
+            provider: None,
         }
     }
 
@@ -432,6 +496,54 @@ mod tests {
         assert_eq!(gpt.input_tokens, 300);
         assert_eq!(gpt.output_tokens, 150);
         assert_eq!(gpt.count, 1);
+    }
+
+    #[test]
+    fn test_by_model_normalizes_date_suffix() {
+        // claude-sonnet-4-20250514 and claude-sonnet-4 should be grouped together
+        let entries = vec![
+            make_entry(
+                2024,
+                1,
+                15,
+                Some("claude-sonnet-4-20250514"),
+                100,
+                50,
+                Some(0.01),
+            ),
+            make_entry(2024, 1, 16, Some("claude-sonnet-4"), 200, 100, Some(0.02)),
+        ];
+
+        let result = Aggregator::by_model(&entries);
+
+        // Should have only one model: claude-sonnet-4
+        assert_eq!(result.len(), 1);
+        let usage = result.get("claude-sonnet-4").unwrap();
+        assert_eq!(usage.input_tokens, 300); // 100 + 200
+        assert_eq!(usage.count, 2);
+    }
+
+    #[test]
+    fn test_daily_normalizes_model_names() {
+        let entries = vec![
+            make_entry(
+                2024,
+                1,
+                15,
+                Some("claude-opus-4-5-20251101"),
+                100,
+                50,
+                Some(0.01),
+            ),
+            make_entry(2024, 1, 15, Some("claude-opus-4-5"), 200, 100, Some(0.02)),
+        ];
+
+        let result = Aggregator::daily(&entries);
+
+        assert_eq!(result.len(), 1);
+        // Should have only one model in the breakdown
+        assert_eq!(result[0].models.len(), 1);
+        assert!(result[0].models.contains_key("claude-opus-4-5"));
     }
 
     #[test]
@@ -1052,5 +1164,226 @@ mod tests {
         let gpt = target.models.get("gpt-4").unwrap();
         assert_eq!(gpt.input_tokens, 50);
         assert_eq!(gpt.count, 1);
+    }
+
+    // ========== by_source tests ==========
+
+    #[allow(clippy::too_many_arguments)]
+    fn make_entry_with_source(
+        year: i32,
+        month: u32,
+        day: u32,
+        model: Option<&str>,
+        input: u64,
+        output: u64,
+        cost: Option<f64>,
+        source: Option<&str>,
+    ) -> UsageEntry {
+        UsageEntry {
+            timestamp: Utc.with_ymd_and_hms(year, month, day, 12, 0, 0).unwrap(),
+            model: model.map(String::from),
+            input_tokens: input,
+            output_tokens: output,
+            cache_read_tokens: 0,
+            cache_creation_tokens: 0,
+            thinking_tokens: 0,
+            cost_usd: cost,
+            message_id: None,
+            request_id: None,
+            source: source.map(String::from),
+            provider: None,
+        }
+    }
+
+    #[test]
+    fn test_by_source_empty() {
+        let result = Aggregator::by_source(&[]);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_by_source_single_source() {
+        let entries = vec![
+            make_entry_with_source(
+                2024,
+                1,
+                15,
+                Some("claude"),
+                100,
+                50,
+                Some(0.01),
+                Some("claude"),
+            ),
+            make_entry_with_source(
+                2024,
+                1,
+                16,
+                Some("claude"),
+                200,
+                100,
+                Some(0.02),
+                Some("claude"),
+            ),
+        ];
+        let result = Aggregator::by_source(&entries);
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].source, "claude");
+        assert_eq!(result[0].total_tokens, 450); // 100+50 + 200+100
+        assert!((result[0].total_cost_usd - 0.03).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_by_source_multiple_sources() {
+        let entries = vec![
+            make_entry_with_source(
+                2024,
+                1,
+                15,
+                Some("claude"),
+                100,
+                50,
+                Some(0.01),
+                Some("claude"),
+            ),
+            make_entry_with_source(
+                2024,
+                1,
+                16,
+                Some("gpt-4"),
+                300,
+                150,
+                Some(0.03),
+                Some("opencode"),
+            ),
+            make_entry_with_source(
+                2024,
+                1,
+                17,
+                Some("gemini"),
+                50,
+                25,
+                Some(0.005),
+                Some("gemini"),
+            ),
+        ];
+        let result = Aggregator::by_source(&entries);
+
+        assert_eq!(result.len(), 3);
+        // Sorted by total_tokens descending
+        assert_eq!(result[0].source, "opencode");
+        assert_eq!(result[0].total_tokens, 450); // 300+150
+        assert_eq!(result[1].source, "claude");
+        assert_eq!(result[1].total_tokens, 150); // 100+50
+        assert_eq!(result[2].source, "gemini");
+        assert_eq!(result[2].total_tokens, 75); // 50+25
+    }
+
+    #[test]
+    fn test_by_source_none_becomes_unknown() {
+        let entries = vec![make_entry_with_source(
+            2024,
+            1,
+            15,
+            Some("model"),
+            100,
+            50,
+            Some(0.01),
+            None,
+        )];
+        let result = Aggregator::by_source(&entries);
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].source, "unknown");
+    }
+
+    // ========== merge_by_date tests ==========
+
+    #[test]
+    fn test_merge_by_date_empty() {
+        let result = Aggregator::merge_by_date(vec![]);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_merge_by_date_no_duplicates() {
+        let summaries = vec![
+            make_daily_summary(2025, 1, 10, 100, 50, 0.01),
+            make_daily_summary(2025, 1, 15, 200, 100, 0.02),
+        ];
+        let result = Aggregator::merge_by_date(summaries);
+
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].date.to_string(), "2025-01-10");
+        assert_eq!(result[1].date.to_string(), "2025-01-15");
+    }
+
+    #[test]
+    fn test_merge_by_date_merges_same_date() {
+        // Two summaries from different sources for the same date
+        let summaries = vec![
+            make_daily_summary(2025, 1, 15, 100, 50, 0.01),
+            make_daily_summary(2025, 1, 15, 200, 100, 0.02),
+        ];
+        let result = Aggregator::merge_by_date(summaries);
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].date.to_string(), "2025-01-15");
+        assert_eq!(result[0].total_input_tokens, 300);
+        assert_eq!(result[0].total_output_tokens, 150);
+        assert!((result[0].total_cost_usd - 0.03).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_merge_by_date_sorted() {
+        let summaries = vec![
+            make_daily_summary(2025, 1, 20, 100, 50, 0.01),
+            make_daily_summary(2025, 1, 10, 200, 100, 0.02),
+            make_daily_summary(2025, 1, 15, 150, 75, 0.015),
+        ];
+        let result = Aggregator::merge_by_date(summaries);
+
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].date.to_string(), "2025-01-10");
+        assert_eq!(result[1].date.to_string(), "2025-01-15");
+        assert_eq!(result[2].date.to_string(), "2025-01-20");
+    }
+
+    #[test]
+    fn test_merge_by_date_merges_models() {
+        let mut models_a = HashMap::new();
+        models_a.insert(
+            "claude".to_string(),
+            ModelUsage {
+                input_tokens: 100,
+                output_tokens: 50,
+                cost_usd: 0.01,
+                count: 1,
+                ..Default::default()
+            },
+        );
+
+        let mut models_b = HashMap::new();
+        models_b.insert(
+            "gpt-4".to_string(),
+            ModelUsage {
+                input_tokens: 200,
+                output_tokens: 100,
+                cost_usd: 0.02,
+                count: 2,
+                ..Default::default()
+            },
+        );
+
+        let summaries = vec![
+            make_daily_summary_with_models(2025, 1, 15, 100, 50, 0.01, models_a),
+            make_daily_summary_with_models(2025, 1, 15, 200, 100, 0.02, models_b),
+        ];
+        let result = Aggregator::merge_by_date(summaries);
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].models.len(), 2);
+        assert!(result[0].models.contains_key("claude"));
+        assert!(result[0].models.contains_key("gpt-4"));
     }
 }
