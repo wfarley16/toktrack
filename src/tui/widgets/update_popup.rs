@@ -28,7 +28,7 @@ impl Widget for DimOverlay {
 
 /// Width and height of the update popup
 const POPUP_WIDTH: u16 = 48;
-const POPUP_HEIGHT: u16 = 11;
+const POPUP_HEIGHT: u16 = 12;
 
 /// Update popup overlay showing available update info
 pub struct UpdatePopup<'a> {
@@ -85,8 +85,9 @@ impl<'a> Widget for UpdatePopup<'a> {
             Constraint::Length(1), // [4] Padding
             Constraint::Length(1), // [5] Update now
             Constraint::Length(1), // [6] Skip
-            Constraint::Length(1), // [7] Padding
-            Constraint::Length(1), // [8] Key hints
+            Constraint::Length(1), // [7] Padding between options and hints
+            Constraint::Length(1), // [8] Hint line 1
+            Constraint::Length(1), // [9] Hint line 2
         ])
         .split(inner);
 
@@ -126,7 +127,7 @@ impl<'a> Widget for UpdatePopup<'a> {
             (
                 "▸ ",
                 Style::default()
-                    .fg(self.theme.accent())
+                    .fg(Color::LightGreen)
                     .add_modifier(Modifier::BOLD),
             )
         } else {
@@ -144,7 +145,7 @@ impl<'a> Widget for UpdatePopup<'a> {
             (
                 "▸ ",
                 Style::default()
-                    .fg(self.theme.accent())
+                    .fg(Color::LightGreen)
                     .add_modifier(Modifier::BOLD),
             )
         } else {
@@ -158,26 +159,22 @@ impl<'a> Widget for UpdatePopup<'a> {
             .alignment(Alignment::Center)
             .render(chunks[6], buf);
 
-        // Key hints
-        let hint_line = Line::from(vec![
-            Span::styled(
-                "↑↓",
-                Style::default()
-                    .fg(self.theme.muted())
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(" Select  ", Style::default().fg(self.theme.muted())),
-            Span::styled(
-                "Enter",
-                Style::default()
-                    .fg(self.theme.muted())
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(" Confirm", Style::default().fg(self.theme.muted())),
+        // Key hints - two lines
+        let hint_line1 = Line::from(vec![
+            Span::styled("  ↑↓", Style::default().fg(self.theme.accent())),
+            Span::styled("  Select", Style::default().fg(self.theme.muted())),
         ]);
-        Paragraph::new(hint_line)
+        Paragraph::new(hint_line1)
             .alignment(Alignment::Center)
             .render(chunks[8], buf);
+
+        let hint_line2 = Line::from(vec![
+            Span::styled("Enter", Style::default().fg(self.theme.accent())),
+            Span::styled("  Confirm", Style::default().fg(self.theme.muted())),
+        ]);
+        Paragraph::new(hint_line2)
+            .alignment(Alignment::Center)
+            .render(chunks[9], buf);
     }
 }
 
