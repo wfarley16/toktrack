@@ -35,3 +35,18 @@
 - **결정**: Ctrl+C만 종료, q/Esc 트리거 제거
 - **이유**: 터미널 표준 동작 준수, crossterm은 OS 무관 CONTROL 사용
 
+## 2026-02-05: daily-column-priority
+- **결정**: 좁은 화면에서 Usage 컬럼 유지, Input/Output/Cache 먼저 숨김
+- **이유**: 시각적 바 차트(Usage)가 한눈에 패턴 파악에 유용
+- **대안**: 기존 방식(Usage 먼저 숨김) - 숫자 데이터 우선이나 직관성 부족
+- **숨김 순서**: Input → Output → Cache → Usage
+
+## 2026-02-05: daily-model-display
+- **결정**: 다중 모델 시 "주력모델 +N" 형식 표시 (예: `Opus 4.5 +2`)
+- **이유**: "3 models"보다 정보량 높음, 주력 모델이 바로 보임
+- **기준**: 비용(cost_usd) 기준 최고 모델을 주력으로 선정
+
+## 2026-02-05: quit-default-yes
+- **결정**: Quit 확인 팝업 기본 선택을 No → Yes로 변경
+- **이유**: Ctrl+C 의도적 액션이므로 빠른 종료 UX 제공
+
