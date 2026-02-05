@@ -412,10 +412,11 @@ impl DailyView<'_> {
             })
             .collect();
 
-        let model_name = if non_zero_models.len() == 1 {
-            display_name(non_zero_models[0].0)
+        // Separate primary model name and count suffix for different coloring
+        let (primary_model, count_suffix) = if non_zero_models.len() == 1 {
+            (display_name(non_zero_models[0].0), None)
         } else if non_zero_models.is_empty() {
-            "unknown".to_string()
+            ("unknown".to_string(), None)
         } else {
             // Find model with highest cost among non-zero models
             let primary = non_zero_models
@@ -428,14 +429,22 @@ impl DailyView<'_> {
                 .map(|(name, _)| display_name(name))
                 .unwrap_or_else(|| "unknown".to_string());
             let others = non_zero_models.len() - 1;
-            format!("{} +{}", primary, others)
+            (primary, Some(format!(" +{}", others)))
         };
 
-        // Truncate model name if too long (UTF-8 safe)
-        let model_display = if model_name.chars().count() > 23 {
-            format!("{}…", model_name.chars().take(22).collect::<String>())
+        // Truncate primary model name if too long (UTF-8 safe)
+        // Reserve space for count suffix if present
+        let max_primary_len = if count_suffix.is_some() { 20 } else { 23 };
+        let primary_display = if primary_model.chars().count() > max_primary_len {
+            format!(
+                "{}…",
+                primary_model
+                    .chars()
+                    .take(max_primary_len - 1)
+                    .collect::<String>()
+            )
         } else {
-            model_name
+            primary_model
         };
 
         let sparkline = format_sparkline(total_tokens, max_tokens, 14);
@@ -459,6 +468,36 @@ impl DailyView<'_> {
 
         // Add selection marker for first column
         for (col_idx, &col) in visible.iter().enumerate() {
+            // COL_MODEL is special: renders primary model (accent) + count (muted)
+            if col == COL_MODEL {
+                let accent_style = if is_selected && col_idx > 0 {
+                    Style::default()
+                        .fg(self.theme.accent())
+                        .add_modifier(selection_modifier)
+                } else {
+                    Style::default().fg(self.theme.accent())
+                };
+                let muted_style = if is_selected && col_idx > 0 {
+                    Style::default()
+                        .fg(self.theme.muted())
+                        .add_modifier(selection_modifier)
+                } else {
+                    Style::default().fg(self.theme.muted())
+                };
+
+                // Calculate padding: total column width is 25
+                let suffix = count_suffix.as_deref().unwrap_or("");
+                let content_len = primary_display.chars().count() + suffix.chars().count();
+                let padding = 25usize.saturating_sub(content_len);
+
+                spans.push(Span::styled(primary_display.clone(), accent_style));
+                if !suffix.is_empty() {
+                    spans.push(Span::styled(suffix.to_string(), muted_style));
+                }
+                spans.push(Span::styled(" ".repeat(padding), Style::default()));
+                continue;
+            }
+
             let (text, base_style) = match col {
                 COL_DATE => {
                     // Prepend marker to date column
@@ -469,10 +508,6 @@ impl DailyView<'_> {
                         Style::default().fg(self.theme.date()),
                     )
                 }
-                COL_MODEL => (
-                    format!("{:<25}", model_display),
-                    Style::default().fg(self.theme.accent()),
-                ),
                 COL_INPUT => (
                     format!("{:>18}", format_number(summary.total_input_tokens)),
                     Style::default().fg(self.theme.text()),
