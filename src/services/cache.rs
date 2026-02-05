@@ -3,16 +3,36 @@
 //! Caches daily summaries to preserve historical data even after
 //! original JSONL files are deleted.
 
-use crate::services::Aggregator;
-use crate::types::{CacheWarning, DailySummary, Result, ToktrackError, UsageEntry};
+use crate::services::{normalize_model_name, Aggregator};
+use crate::types::{CacheWarning, DailySummary, ModelUsage, Result, ToktrackError, UsageEntry};
 use chrono::{Local, NaiveDate};
 use directories::BaseDirs;
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::PathBuf;
+
+/// Normalize model name keys in a HashMap, merging duplicates.
+fn normalize_model_keys(models: HashMap<String, ModelUsage>) -> HashMap<String, ModelUsage> {
+    let mut normalized: HashMap<String, ModelUsage> = HashMap::new();
+    for (name, usage) in models {
+        let key = normalize_model_name(&name);
+        normalized
+            .entry(key)
+            .and_modify(|existing| {
+                existing.input_tokens += usage.input_tokens;
+                existing.output_tokens += usage.output_tokens;
+                existing.cache_read_tokens += usage.cache_read_tokens;
+                existing.cache_creation_tokens += usage.cache_creation_tokens;
+                existing.cost_usd += usage.cost_usd;
+                existing.count += usage.count;
+            })
+            .or_insert(usage);
+    }
+    normalized
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DailySummaryCache {
@@ -159,14 +179,19 @@ impl DailySummaryCacheService {
         };
 
         let _ = file.unlock();
-        (
-            cache
-                .summaries
-                .into_iter()
-                .filter(|s| s.date < today)
-                .collect(),
-            None,
-        )
+
+        // Migrate model names: normalize keys in the models HashMap
+        let summaries: Vec<DailySummary> = cache
+            .summaries
+            .into_iter()
+            .filter(|s| s.date < today)
+            .map(|mut s| {
+                s.models = normalize_model_keys(s.models);
+                s
+            })
+            .collect();
+
+        (summaries, None)
     }
 
     /// Save using atomic write (temp file + rename) with exclusive lock.
@@ -544,5 +569,73 @@ mod tests {
         assert_eq!(cursor_content.cli, "cursor");
         assert_eq!(claude_content.summaries[0].total_input_tokens, 100);
         assert_eq!(cursor_content.summaries[0].total_input_tokens, 500);
+    }
+
+    // Test 11: Cache migrates model names (normalizes keys)
+    #[test]
+    fn test_cache_migrates_model_names() {
+        let (service, _temp) = create_test_service();
+        let yesterday = Local::now().date_naive() - chrono::Duration::days(1);
+
+        // Create cache with non-normalized model names (with date suffixes)
+        let mut models = HashMap::new();
+        models.insert(
+            "claude-opus-4-5-20251101".to_string(),
+            crate::types::ModelUsage {
+                input_tokens: 100,
+                output_tokens: 50,
+                cache_read_tokens: 0,
+                cache_creation_tokens: 0,
+                cost_usd: 0.10,
+                count: 1,
+            },
+        );
+        models.insert(
+            "claude-opus-4.5".to_string(), // Dot version, same model
+            crate::types::ModelUsage {
+                input_tokens: 200,
+                output_tokens: 100,
+                cache_read_tokens: 0,
+                cache_creation_tokens: 0,
+                cost_usd: 0.20,
+                count: 2,
+            },
+        );
+
+        let cached_summary = DailySummary {
+            date: yesterday,
+            total_input_tokens: 300,
+            total_output_tokens: 150,
+            total_cache_read_tokens: 0,
+            total_cache_creation_tokens: 0,
+            total_cost_usd: 0.30,
+            models,
+        };
+        let cache = DailySummaryCache {
+            cli: "claude-code".to_string(),
+            updated_at: chrono::Utc::now().timestamp(),
+            summaries: vec![cached_summary],
+        };
+        let cache_path = service.cache_path("claude-code");
+        fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
+        fs::write(&cache_path, serde_json::to_string(&cache).unwrap()).unwrap();
+
+        // Load and verify normalization + merging
+        let entries: Vec<UsageEntry> = vec![];
+        let (result, _warning) = service.load_or_compute("claude-code", &entries).unwrap();
+
+        assert_eq!(result.len(), 1);
+        let summary = &result[0];
+
+        // Should have only one model key after normalization (merged)
+        assert_eq!(summary.models.len(), 1);
+        assert!(summary.models.contains_key("claude-opus-4-5"));
+
+        // Values should be merged
+        let model = summary.models.get("claude-opus-4-5").unwrap();
+        assert_eq!(model.input_tokens, 300); // 100 + 200
+        assert_eq!(model.output_tokens, 150); // 50 + 100
+        assert!((model.cost_usd - 0.30).abs() < f64::EPSILON); // 0.10 + 0.20
+        assert_eq!(model.count, 3); // 1 + 2
     }
 }

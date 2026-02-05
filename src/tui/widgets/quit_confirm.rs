@@ -97,7 +97,7 @@ impl Widget for QuitConfirmPopup {
             (
                 "▸ ",
                 Style::default()
-                    .fg(self.theme.accent())
+                    .fg(self.theme.bar())
                     .add_modifier(Modifier::BOLD),
             )
         } else {
@@ -108,7 +108,7 @@ impl Widget for QuitConfirmPopup {
             (
                 "▸ ",
                 Style::default()
-                    .fg(self.theme.accent())
+                    .fg(self.theme.bar())
                     .add_modifier(Modifier::BOLD),
             )
         } else {

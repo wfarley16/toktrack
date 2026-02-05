@@ -244,7 +244,7 @@ impl StatsView<'_> {
 
     fn render_keybindings(&self, area: Rect, buf: &mut Buffer) {
         let bindings = Paragraph::new(Line::from(vec![
-            Span::styled("q", Style::default().fg(self.theme.accent())),
+            Span::styled("Ctrl+C", Style::default().fg(self.theme.accent())),
             Span::styled(": Quit", Style::default().fg(self.theme.muted())),
             Span::raw("  "),
             Span::styled("Tab", Style::default().fg(self.theme.accent())),
