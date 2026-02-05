@@ -3,7 +3,7 @@
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Layout, Rect},
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Widget},
 };
@@ -12,23 +12,17 @@ use crate::tui::theme::Theme;
 
 /// Width and height of the quit confirm popup
 const POPUP_WIDTH: u16 = 36;
-const POPUP_HEIGHT: u16 = 7;
+const POPUP_HEIGHT: u16 = 9;
 
 /// State for quit confirmation dialog
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct QuitConfirmState {
-    /// 0 = Yes, 1 = No (default)
+    /// 0 = Yes (default), 1 = No
     pub selection: u8,
 }
 
-impl Default for QuitConfirmState {
-    fn default() -> Self {
-        Self { selection: 1 } // Default to "No" for safety
-    }
-}
-
 impl QuitConfirmState {
-    /// Create a new state with default selection (No)
+    /// Create a new state with default selection (Yes)
     pub fn new() -> Self {
         Self::default()
     }
@@ -79,7 +73,9 @@ impl Widget for QuitConfirmPopup {
             Constraint::Length(1), // [1] Question
             Constraint::Length(1), // [2] Padding
             Constraint::Length(1), // [3] Buttons
-            Constraint::Length(1), // [4] Key hints
+            Constraint::Length(1), // [4] Padding between buttons and hints
+            Constraint::Length(1), // [5] Hint line 1
+            Constraint::Length(1), // [6] Hint line 2
         ])
         .split(inner);
 
@@ -97,7 +93,7 @@ impl Widget for QuitConfirmPopup {
             (
                 "▸ ",
                 Style::default()
-                    .fg(self.theme.bar())
+                    .fg(Color::LightRed)
                     .add_modifier(Modifier::BOLD),
             )
         } else {
@@ -108,7 +104,7 @@ impl Widget for QuitConfirmPopup {
             (
                 "▸ ",
                 Style::default()
-                    .fg(self.theme.bar())
+                    .fg(Color::LightRed)
                     .add_modifier(Modifier::BOLD),
             )
         } else {
@@ -126,26 +122,22 @@ impl Widget for QuitConfirmPopup {
             .alignment(Alignment::Center)
             .render(chunks[3], buf);
 
-        // Key hints
-        let hint_line = Line::from(vec![
-            Span::styled(
-                "←→",
-                Style::default()
-                    .fg(self.theme.muted())
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(" Select  ", Style::default().fg(self.theme.muted())),
-            Span::styled(
-                "Enter",
-                Style::default()
-                    .fg(self.theme.muted())
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(" Confirm", Style::default().fg(self.theme.muted())),
+        // Key hints - two lines
+        let hint_line1 = Line::from(vec![
+            Span::styled("  ←→", Style::default().fg(self.theme.accent())),
+            Span::styled("  Select", Style::default().fg(self.theme.muted())),
         ]);
-        Paragraph::new(hint_line)
+        Paragraph::new(hint_line1)
             .alignment(Alignment::Center)
-            .render(chunks[4], buf);
+            .render(chunks[5], buf);
+
+        let hint_line2 = Line::from(vec![
+            Span::styled("Enter", Style::default().fg(self.theme.accent())),
+            Span::styled("  Confirm", Style::default().fg(self.theme.muted())),
+        ]);
+        Paragraph::new(hint_line2)
+            .alignment(Alignment::Center)
+            .render(chunks[6], buf);
     }
 }
 
@@ -154,16 +146,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_quit_confirm_default_selection_is_no() {
+    fn test_quit_confirm_default_selection_is_yes() {
         let state = QuitConfirmState::new();
-        assert_eq!(state.selection, 1); // 1 = No
+        assert_eq!(state.selection, 0); // 0 = Yes
     }
 
     #[test]
-    fn test_quit_confirm_state_default_is_no() {
+    fn test_quit_confirm_state_default_is_yes() {
         let state = QuitConfirmState::default();
-        // Both default() and new() should give selection=1 (No)
-        assert_eq!(state.selection, 1);
+        // Both default() and new() should give selection=0 (Yes)
+        assert_eq!(state.selection, 0);
     }
 
     #[test]

@@ -1298,7 +1298,7 @@ mod tests {
     }
 
     #[test]
-    fn test_quit_confirm_default_is_no() {
+    fn test_quit_confirm_default_is_yes() {
         let mut app = App::default();
         // Use Ctrl+C to trigger quit confirmation
         app.handle_event(Event::Key(KeyEvent::new(
@@ -1306,8 +1306,8 @@ mod tests {
             KeyModifiers::CONTROL,
         )));
 
-        // Default selection should be No (1)
-        assert_eq!(app.quit_confirm.as_ref().unwrap().selection, 1);
+        // Default selection should be Yes (0)
+        assert_eq!(app.quit_confirm.as_ref().unwrap().selection, 0);
     }
 
     #[test]

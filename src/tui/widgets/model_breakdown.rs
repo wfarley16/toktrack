@@ -15,9 +15,9 @@ use crate::types::ModelUsage;
 use super::overview::format_number;
 
 /// Width and height of the model breakdown popup
-const POPUP_WIDTH: u16 = 50;
-const POPUP_MIN_HEIGHT: u16 = 8;
-const POPUP_MAX_HEIGHT: u16 = 20;
+const POPUP_WIDTH: u16 = 54;
+const POPUP_MIN_HEIGHT: u16 = 10;
+const POPUP_MAX_HEIGHT: u16 = 21;
 
 /// State for model breakdown popup
 #[derive(Debug, Clone)]
@@ -55,8 +55,8 @@ impl<'a> ModelBreakdownPopup<'a> {
 
     /// Calculate centered popup area with dynamic height based on model count
     pub fn centered_area(area: Rect, model_count: usize) -> Rect {
-        // Height = header (3) + models + footer (2)
-        let content_height = 5 + model_count as u16;
+        // Height = border (2) + padding (1 top) + header (1) + sep (1) + models + padding (1) + footer (1)
+        let content_height = 7 + model_count as u16;
         let height = content_height.clamp(POPUP_MIN_HEIGHT, POPUP_MAX_HEIGHT);
 
         let x = area.x + (area.width.saturating_sub(POPUP_WIDTH)) / 2;
@@ -86,8 +86,16 @@ impl Widget for ModelBreakdownPopup<'_> {
         let inner = block.inner(area);
         block.render(area, buf);
 
-        // Calculate visible rows (minus header and footer)
-        let available_rows = inner.height.saturating_sub(4) as usize;
+        // Apply internal padding: 1 top, 2 left/right
+        let padded = Rect {
+            x: inner.x + 2,
+            y: inner.y + 1,
+            width: inner.width.saturating_sub(4),
+            height: inner.height.saturating_sub(1), // Only top padding
+        };
+
+        // Calculate visible rows (minus header, separator, padding, footer)
+        let available_rows = padded.height.saturating_sub(4) as usize;
         let models_to_show = self.state.models.len().min(available_rows);
 
         // Build layout
@@ -98,10 +106,10 @@ impl Widget for ModelBreakdownPopup<'_> {
         for _ in 0..models_to_show {
             constraints.push(Constraint::Length(1));
         }
-        constraints.push(Constraint::Length(1)); // Padding
+        constraints.push(Constraint::Length(1)); // Padding before footer
         constraints.push(Constraint::Length(1)); // Footer
 
-        let chunks = Layout::vertical(constraints).split(inner);
+        let chunks = Layout::vertical(constraints).split(padded);
 
         // Header
         let header_style = Style::default()
@@ -117,9 +125,9 @@ impl Widget for ModelBreakdownPopup<'_> {
             .render(chunks[0], buf);
 
         // Separator
-        let sep = "─".repeat(inner.width as usize);
+        let sep = "─".repeat(padded.width as usize);
         buf.set_string(
-            inner.x,
+            padded.x,
             chunks[1].y,
             &sep,
             Style::default().fg(self.theme.muted()),

@@ -59,6 +59,7 @@ impl ModelsData {
                     cost_usd: usage.cost_usd,
                 }
             })
+            .filter(|m| m.total_tokens > 0) // Filter out zero-token models
             .collect();
 
         // Sort by cost descending (NaN-safe)

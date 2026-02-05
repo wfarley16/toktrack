@@ -131,8 +131,9 @@ const COL_CACHE: usize = 6;
 const COL_USAGE: usize = 7;
 
 /// Column definition: (label, width). Core columns (0-3) are never hidden.
+/// Date width includes 2 chars for selection marker (▸ )
 const COLUMNS: [(&str, u16); 8] = [
-    ("Date", 12),   // 0: COL_DATE
+    ("Date", 14),   // 0: COL_DATE (12 date + 2 marker)
     ("Model", 25),  // 1: COL_MODEL
     ("Total", 18),  // 2: COL_TOTAL
     ("Cost", 12),   // 3: COL_COST
@@ -143,10 +144,11 @@ const COLUMNS: [(&str, u16); 8] = [
 ];
 
 /// Determine which column indices are visible for a given terminal width.
-/// Columns are hidden in reverse priority order: Usage first, then Cache, Output, Input.
+/// Columns are hidden in priority order: Input first, then Output, Cache, Usage.
+/// This prioritizes showing Usage (visual bar) in narrow views.
 fn visible_columns(width: u16) -> Vec<usize> {
-    // Ordered by hide priority: last element is hidden first
-    const HIDE_ORDER: [usize; 4] = [COL_USAGE, COL_CACHE, COL_OUTPUT, COL_INPUT];
+    // Ordered by hide priority: first element is hidden first
+    const HIDE_ORDER: [usize; 4] = [COL_INPUT, COL_OUTPUT, COL_CACHE, COL_USAGE];
 
     let mut visible: Vec<usize> = (0..COLUMNS.len()).collect();
 
@@ -325,7 +327,10 @@ impl DailyView<'_> {
         for &col in visible {
             let (label, width) = COLUMNS[col];
             let label = if col == COL_DATE { date_label } else { label };
-            let formatted = if col == COL_DATE || col == COL_MODEL {
+            let formatted = if col == COL_DATE {
+                // Add 2-space prefix to align with selection marker in rows
+                format!("  {:<width$}", label, width = (width as usize) - 2)
+            } else if col == COL_MODEL {
                 format!("{:<width$}", label, width = width as usize)
             } else {
                 format!("{:>width$}", label, width = width as usize)
@@ -394,7 +399,7 @@ impl DailyView<'_> {
 
         let cache_tokens = summary.total_cache_read_tokens + summary.total_cache_creation_tokens;
 
-        // Get primary model (first one, or "mixed" if multiple)
+        // Get primary model (highest cost) + count of others
         let model_name = if summary.models.len() == 1 {
             let raw_name = summary
                 .models
@@ -406,7 +411,19 @@ impl DailyView<'_> {
         } else if summary.models.is_empty() {
             "unknown".to_string()
         } else {
-            format!("{} models", summary.models.len())
+            // Find model with highest cost
+            let primary = summary
+                .models
+                .iter()
+                .max_by(|a, b| {
+                    a.1.cost_usd
+                        .partial_cmp(&b.1.cost_usd)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .map(|(name, _)| display_name(name))
+                .unwrap_or_else(|| "unknown".to_string());
+            let others = summary.models.len() - 1;
+            format!("{} +{}", primary, others)
         };
 
         // Truncate model name if too long (UTF-8 safe)
@@ -441,9 +458,9 @@ impl DailyView<'_> {
                 COL_DATE => {
                     // Prepend marker to date column
                     let marker = if is_selected { "▸ " } else { "  " };
-                    // Adjust width: marker takes 2 chars, so date field is 10
+                    // Adjust width: marker takes 2 chars, so date field is 12
                     (
-                        format!("{}{:<10}", marker, date_str),
+                        format!("{}{:<12}", marker, date_str),
                         Style::default().fg(self.theme.date()),
                     )
                 }
@@ -701,46 +718,51 @@ mod tests {
     }
 
     // ========== Responsive column tests ==========
+    // Hide order: Input → Output → Cache → Usage (keeps Usage visible longest)
+    // Full: 141, -Input: 123, -Output: 105, -Cache: 87, -Usage: 69
 
     #[test]
     fn test_visible_columns_full_width() {
-        // >= 139: all 8 columns visible
-        let cols = visible_columns(139);
+        // >= 141: all 8 columns visible
+        let cols = visible_columns(141);
         assert_eq!(cols.len(), 8);
         assert_eq!(cols, vec![0, 1, 2, 3, 4, 5, 6, 7]);
     }
 
     #[test]
-    fn test_visible_columns_hide_usage() {
-        // 121..138: 7 columns (Usage hidden)
-        let cols = visible_columns(121);
+    fn test_visible_columns_hide_input() {
+        // 123..140: 7 columns (Input hidden first)
+        let cols = visible_columns(123);
         assert_eq!(cols.len(), 7);
-        assert!(!cols.contains(&COL_USAGE));
+        assert!(!cols.contains(&COL_INPUT));
+        assert!(cols.contains(&COL_USAGE)); // Usage still visible
     }
 
     #[test]
-    fn test_visible_columns_hide_usage_and_cache() {
-        // 103..120: 6 columns (Usage + Cache hidden)
-        let cols = visible_columns(103);
+    fn test_visible_columns_hide_input_and_output() {
+        // 105..122: 6 columns (Input + Output hidden)
+        let cols = visible_columns(105);
         assert_eq!(cols.len(), 6);
-        assert!(!cols.contains(&COL_USAGE));
-        assert!(!cols.contains(&COL_CACHE));
+        assert!(!cols.contains(&COL_INPUT));
+        assert!(!cols.contains(&COL_OUTPUT));
+        assert!(cols.contains(&COL_USAGE)); // Usage still visible
     }
 
     #[test]
     fn test_visible_columns_hide_three() {
-        // 85..102: 5 columns (Usage + Cache + Output hidden)
-        let cols = visible_columns(85);
+        // 87..104: 5 columns (Input + Output + Cache hidden)
+        let cols = visible_columns(87);
         assert_eq!(cols.len(), 5);
-        assert!(!cols.contains(&COL_USAGE));
-        assert!(!cols.contains(&COL_CACHE));
+        assert!(!cols.contains(&COL_INPUT));
         assert!(!cols.contains(&COL_OUTPUT));
+        assert!(!cols.contains(&COL_CACHE));
+        assert!(cols.contains(&COL_USAGE)); // Usage still visible
     }
 
     #[test]
     fn test_visible_columns_minimum() {
-        // < 85: 4 columns (Date + Model + Total + Cost)
-        let cols = visible_columns(67);
+        // < 87: 4 columns (Date + Model + Total + Cost)
+        let cols = visible_columns(69);
         assert_eq!(cols.len(), 4);
         assert_eq!(cols, vec![COL_DATE, COL_MODEL, COL_TOTAL, COL_COST]);
     }
@@ -748,13 +770,13 @@ mod tests {
     #[test]
     fn test_table_width_for_all_columns() {
         let all: Vec<usize> = (0..8).collect();
-        assert_eq!(table_width_for(&all), 139);
+        assert_eq!(table_width_for(&all), 141);
     }
 
     #[test]
     fn test_table_width_for_minimum_columns() {
         let min = vec![COL_DATE, COL_MODEL, COL_TOTAL, COL_COST];
-        assert_eq!(table_width_for(&min), 67);
+        assert_eq!(table_width_for(&min), 69);
     }
 
     #[test]
