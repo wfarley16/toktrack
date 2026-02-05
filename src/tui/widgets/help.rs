@@ -139,12 +139,12 @@ impl Widget for HelpPopup {
             Style::default().fg(self.theme.muted()),
         );
 
-        render_keybinding(chunks[10], buf, "q / Esc", "Quit", self.theme);
+        render_keybinding(chunks[10], buf, "Ctrl+C", "Quit", self.theme);
         render_keybinding(chunks[11], buf, "?", "Toggle help", self.theme);
 
         // Close hint
         let hint = Line::from(vec![Span::styled(
-            "Press ? or Esc to close",
+            "Press ? to close",
             Style::default().fg(self.theme.muted()),
         )]);
         Paragraph::new(hint)

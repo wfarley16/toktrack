@@ -159,8 +159,12 @@ impl App {
                 }
 
                 match key.code {
-                    KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => {
-                        self.quit_confirm = Some(QuitConfirmState::new());
+                    KeyCode::Esc => {
+                        // Esc only closes popups (e.g., help), does not trigger quit
+                        if self.show_help {
+                            self.show_help = false;
+                        }
+                        // If no popup is open, Esc does nothing
                     }
                     KeyCode::Tab => {
                         self.current_tab = self.current_tab.next();
@@ -250,11 +254,10 @@ impl App {
                             self.consume_pending_data();
                         }
                     }
-                    (
-                        UpdateStatus::Available { .. },
-                        KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc,
-                    ) => {
-                        self.should_quit = true;
+                    // Esc dismisses update overlay (skip update)
+                    (UpdateStatus::Available { .. }, KeyCode::Esc) => {
+                        self.update_status = UpdateStatus::Resolved;
+                        self.consume_pending_data();
                     }
                     // UpdateDone state: any key dismisses
                     (UpdateStatus::UpdateDone { success, .. }, _) => {
@@ -881,7 +884,7 @@ mod tests {
     }
 
     #[test]
-    fn test_app_quit_on_q_shows_confirmation() {
+    fn test_q_key_does_nothing() {
         let mut app = App::default();
         assert!(!app.should_quit());
         assert!(app.quit_confirm.is_none());
@@ -889,19 +892,40 @@ mod tests {
         let event = Event::Key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
         app.handle_event(event);
 
-        // Should show quit confirmation, not quit immediately
+        // q key should do nothing (no quit confirm, no quit)
         assert!(!app.should_quit());
-        assert!(app.quit_confirm.is_some());
+        assert!(app.quit_confirm.is_none());
     }
 
     #[test]
-    fn test_app_quit_on_esc_shows_confirmation() {
-        let mut app = App::default();
+    fn test_esc_closes_help_popup() {
+        let mut app = App {
+            show_help: true,
+            ..App::default()
+        };
+
         let event = Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         app.handle_event(event);
-        // Should show quit confirmation, not quit immediately
+
+        // Esc should close help popup, not show quit confirm
+        assert!(!app.show_help);
+        assert!(app.quit_confirm.is_none());
         assert!(!app.should_quit());
-        assert!(app.quit_confirm.is_some());
+    }
+
+    #[test]
+    fn test_esc_does_nothing_when_no_popup() {
+        let mut app = App::default();
+        // Default show_help is false
+        assert!(!app.show_help);
+
+        let event = Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        app.handle_event(event);
+
+        // Esc should do nothing when no popup is open
+        assert!(!app.show_help);
+        assert!(app.quit_confirm.is_none());
+        assert!(!app.should_quit());
     }
 
     #[test]
@@ -1141,24 +1165,15 @@ mod tests {
     }
 
     #[test]
-    fn test_update_overlay_quit_still_works() {
+    fn test_update_overlay_esc_dismisses() {
         let mut app = make_update_available_app();
 
-        // Press 'q' → should quit
-        let event = Event::Key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
-        app.handle_update_event(event);
-
-        assert!(app.should_quit());
-    }
-
-    #[test]
-    fn test_update_overlay_esc_quits() {
-        let mut app = make_update_available_app();
-
+        // Esc should dismiss the update overlay (skip update), not quit
         let event = Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         app.handle_update_event(event);
 
-        assert!(app.should_quit());
+        assert!(!app.should_quit());
+        assert_eq!(app.update_status, UpdateStatus::Resolved);
     }
 
     #[test]
@@ -1304,8 +1319,8 @@ mod tests {
         let mut app = App::default();
         assert_eq!(app.update_status, UpdateStatus::Checking);
 
-        // 'q' via handle_event should show quit_confirm (proving handle_event runs, not handle_update_event)
-        let event = Event::Key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
+        // Ctrl+C via handle_event should show quit_confirm (proving handle_event runs, not handle_update_event)
+        let event = Event::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
         app.handle_event(event);
         assert!(app.quit_confirm.is_some()); // Shows quit confirmation popup
     }
@@ -1364,28 +1379,6 @@ mod tests {
     // ========== Quit confirm popup tests ==========
 
     #[test]
-    fn test_q_shows_quit_confirm_popup() {
-        let mut app = App::default();
-        assert!(app.quit_confirm.is_none());
-
-        let event = Event::Key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
-        app.handle_event(event);
-
-        assert!(app.quit_confirm.is_some());
-        assert!(!app.should_quit()); // Should not quit yet
-    }
-
-    #[test]
-    fn test_esc_shows_quit_confirm_popup() {
-        let mut app = App::default();
-        let event = Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-        app.handle_event(event);
-
-        assert!(app.quit_confirm.is_some());
-        assert!(!app.should_quit());
-    }
-
-    #[test]
     fn test_ctrl_c_shows_quit_confirm_popup() {
         let mut app = App::default();
         let event = Event::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
@@ -1398,9 +1391,10 @@ mod tests {
     #[test]
     fn test_quit_confirm_default_is_no() {
         let mut app = App::default();
+        // Use Ctrl+C to trigger quit confirmation
         app.handle_event(Event::Key(KeyEvent::new(
-            KeyCode::Char('q'),
-            KeyModifiers::NONE,
+            KeyCode::Char('c'),
+            KeyModifiers::CONTROL,
         )));
 
         // Default selection should be No (1)
