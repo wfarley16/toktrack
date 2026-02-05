@@ -3,10 +3,12 @@
 mod claude;
 mod codex;
 mod gemini;
+mod opencode;
 
 pub use claude::ClaudeCodeParser;
 pub use codex::CodexParser;
 pub use gemini::GeminiParser;
+pub use opencode::OpenCodeParser;
 
 use crate::types::{Result, UsageEntry};
 use rayon::prelude::*;
@@ -105,6 +107,7 @@ impl ParserRegistry {
                 Box::new(ClaudeCodeParser::new()),
                 Box::new(CodexParser::new()),
                 Box::new(GeminiParser::new()),
+                Box::new(OpenCodeParser::new()),
             ],
         }
     }
@@ -137,10 +140,11 @@ mod tests {
     #[test]
     fn test_registry_default_parsers() {
         let registry = ParserRegistry::new();
-        assert_eq!(registry.parsers().len(), 3);
+        assert_eq!(registry.parsers().len(), 4);
         assert!(registry.get("claude-code").is_some());
         assert!(registry.get("codex").is_some());
         assert!(registry.get("gemini").is_some());
+        assert!(registry.get("opencode").is_some());
     }
 
     #[test]

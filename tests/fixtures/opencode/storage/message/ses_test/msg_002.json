@@ -1,0 +1,19 @@
+{
+  "id": "msg_002",
+  "sessionID": "ses_test",
+  "modelID": "claude-sonnet-4-20250514",
+  "providerID": "anthropic",
+  "time": {
+    "created": "2025-02-04T10:05:00Z"
+  },
+  "tokens": {
+    "input": 2000,
+    "output": 800,
+    "reasoning": 150,
+    "cache": {
+      "read": 200,
+      "write": 100
+    }
+  },
+  "cost": 0.12
+}

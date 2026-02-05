@@ -8,7 +8,7 @@
 
 > **⚠️ 알고 계셨나요?** Claude Code는 **기본적으로 30일 후 세션 데이터를 삭제**합니다. 삭제되면 토큰 사용량과 비용 기록은 영원히 사라집니다 — 보존하지 않는 한.
 
-**모든 AI 코딩 CLI**의 토큰 사용량과 비용을 한 곳에서 — Claude Code, Codex CLI, Gemini CLI 통합 대시보드.
+**모든 AI 코딩 CLI**의 토큰 사용량과 비용을 한 곳에서 — Claude Code, Codex CLI, Gemini CLI, OpenCode 통합 대시보드.
 
 Rust 기반 초고속 성능 (simd-json + rayon 병렬 처리).
 
@@ -39,7 +39,7 @@ toktrack (캐시):      ▏ ~0.04초 (일상 사용)
 - **초고속 파싱** — simd-json + rayon 병렬 처리 (~3 GiB/s 처리량)
 - **TUI 대시보드** — 4개 뷰 (Overview, Models, Daily, Stats), 일별/주별/월별 집계
 - **CLI 명령어** — `daily`, `weekly`, `monthly`, `stats` (JSON 출력 지원)
-- **멀티 CLI 지원** — Claude Code, Codex CLI, Gemini CLI 한 곳에서
+- **멀티 CLI 지원** — Claude Code, Codex CLI, Gemini CLI, OpenCode 한 곳에서
 - **데이터 보존** — CLI 데이터 삭제 후에도 비용 기록 유지
 
 ## 설치
@@ -125,7 +125,7 @@ toktrack stats --json
 | Claude Code | ✅ | `~/.claude/projects/` |
 | Codex CLI | ✅ | `~/.codex/sessions/` |
 | Gemini CLI | ✅ | `~/.gemini/tmp/*/chats/` |
-| OpenCode | 🔜 | `~/.local/share/opencode/` |
+| OpenCode | ✅ | `~/.local/share/opencode/storage/` |
 
 ## 성능
 
@@ -160,7 +160,8 @@ toktrack stats --json
 ├── cache/
 │   ├── claude-code_daily.json   # 일별 비용 요약
 │   ├── codex_daily.json
-│   └── gemini_daily.json
+│   ├── gemini_daily.json
+│   └── opencode_daily.json
 └── pricing.json                 # LiteLLM 가격 정보 (1시간 TTL)
 ```
 
@@ -203,7 +204,7 @@ cargo bench   # 벤치마크 실행
 
 ## 로드맵
 
-- [ ] **OpenCode 지원**
+OpenCode 지원이 추가되었습니다! [지원하는 AI CLI](#지원하는-ai-cli)를 참조하세요.
 
 ## 기여하기
 

@@ -5,7 +5,7 @@
 [![npm](https://img.shields.io/npm/v/toktrack)](https://www.npmjs.com/package/toktrack)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/mag123c/toktrack/blob/main/LICENSE)
 
-Ultra-fast token & cost tracker for Claude Code, Codex CLI, and Gemini CLI. Built with Rust for ultra-fast performance (simd-json + rayon).
+Ultra-fast token & cost tracker for Claude Code, Codex CLI, Gemini CLI, and OpenCode. Built with Rust for ultra-fast performance (simd-json + rayon).
 
 > **⚠️ Did you know?** Claude Code **deletes your session data after 30 days** by default. Once deleted, your token usage and cost history are gone forever — unless you preserve them.
 
@@ -33,7 +33,7 @@ npm install -g toktrack
 
 - **Ultra-Fast Parsing** — simd-json + rayon parallel processing (~3 GiB/s throughput)
 - **TUI Dashboard** — 4 views (Overview, Models, Daily, Stats) with daily/weekly/monthly breakdown
-- **Multi-CLI Support** — Claude Code, Codex CLI, Gemini CLI
+- **Multi-CLI Support** — Claude Code, Codex CLI, Gemini CLI, OpenCode
 - **CLI Commands** — `daily`, `weekly`, `monthly`, `stats` with JSON output
 - **Data Preservation** — Cached daily summaries survive CLI data deletion
 
@@ -44,6 +44,7 @@ npm install -g toktrack
 | Claude Code | `~/.claude/projects/` |
 | Codex CLI | `~/.codex/sessions/` |
 | Gemini CLI | `~/.gemini/tmp/*/chats/` |
+| OpenCode | `~/.local/share/opencode/storage/` |
 
 ## Supported Platforms
 
