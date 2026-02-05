@@ -1,8 +1,6 @@
 <p align="center">
-  <img src="assets/logo.png" width="120" alt="toktrack logo">
+  <img src="assets/logo.svg" width="200" alt="toktrack logo">
 </p>
-
-<h1 align="center">toktrack</h1>
 
 <p align="center">
   <a href="https://github.com/mag123c/toktrack/actions/workflows/ci.yml"><img src="https://github.com/mag123c/toktrack/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
