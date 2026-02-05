@@ -8,8 +8,10 @@
 *.swo
 .DS_Store
 
-# Planning docs (private)
-docs/planning/
+
+# Dev specs (local only)
+.dev/*
+!.dev/DECISIONS.md
 
 # Test snapshots (review before commit)
 *.snap.new
