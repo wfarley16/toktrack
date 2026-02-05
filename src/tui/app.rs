@@ -5,7 +5,7 @@ use std::thread;
 use std::time::Duration;
 
 use chrono::{Local, NaiveDate};
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::{
     buffer::Buffer, layout::Rect, style::Style, widgets::Widget, DefaultTerminal, Frame,
 };
@@ -22,6 +22,7 @@ use super::widgets::{
     help::HelpPopup,
     models::{ModelsData, ModelsView},
     overview::{Overview, OverviewData},
+    quit_confirm::{QuitConfirmPopup, QuitConfirmState},
     spinner::{LoadingStage, Spinner},
     stats::StatsView,
     tabs::Tab,
@@ -103,6 +104,7 @@ pub struct App {
     update_selection: u8, // 0 = Update now, 1 = Skip
     pending_data: Option<Result<Box<AppData>, String>>,
     theme: Theme,
+    quit_confirm: Option<QuitConfirmState>,
 }
 
 impl App {
@@ -124,6 +126,7 @@ impl App {
             update_selection: 0,
             pending_data: None,
             theme,
+            quit_confirm: None,
         }
     }
 
@@ -149,9 +152,15 @@ impl App {
     pub fn handle_event(&mut self, event: Event) {
         if let Event::Key(key) = event {
             if key.kind == KeyEventKind::Press {
+                // Ctrl+C shows quit confirmation
+                if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+                    self.quit_confirm = Some(QuitConfirmState::new());
+                    return;
+                }
+
                 match key.code {
                     KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => {
-                        self.should_quit = true;
+                        self.quit_confirm = Some(QuitConfirmState::new());
                     }
                     KeyCode::Tab => {
                         self.current_tab = self.current_tab.next();
@@ -181,6 +190,42 @@ impl App {
                     }
                     KeyCode::Char('m') if self.current_tab == Tab::Daily => {
                         self.daily_view_mode = DailyViewMode::Monthly;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    /// Handle keyboard events when quit confirm overlay is displayed
+    pub fn handle_quit_confirm_event(&mut self, event: Event) {
+        if let Event::Key(key) = event {
+            if key.kind == KeyEventKind::Press {
+                match key.code {
+                    // Arrow keys toggle selection
+                    KeyCode::Left | KeyCode::Right | KeyCode::Up | KeyCode::Down => {
+                        if let Some(ref mut state) = self.quit_confirm {
+                            state.selection = 1 - state.selection;
+                        }
+                    }
+                    // Enter confirms the selection
+                    KeyCode::Enter => {
+                        if let Some(ref state) = self.quit_confirm {
+                            if state.selection == 0 {
+                                // Yes selected -> quit
+                                self.should_quit = true;
+                            }
+                        }
+                        self.quit_confirm = None;
+                    }
+                    // Esc or 'n' cancels
+                    KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
+                        self.quit_confirm = None;
+                    }
+                    // 'y' quits immediately
+                    KeyCode::Char('y') | KeyCode::Char('Y') => {
+                        self.should_quit = true;
+                        self.quit_confirm = None;
                     }
                     _ => {}
                 }
@@ -385,6 +430,13 @@ impl Widget for &App {
                 UpdateMessagePopup::new(message, color).render(popup_area, buf);
             }
             UpdateStatus::Checking | UpdateStatus::Resolved => {}
+        }
+
+        // Render quit confirm overlay (highest z-index, above everything including update overlay)
+        if let Some(ref state) = self.quit_confirm {
+            DimOverlay.render(area, buf);
+            let popup_area = QuitConfirmPopup::centered_area(area);
+            QuitConfirmPopup::new(state.selection, self.theme).render(popup_area, buf);
         }
     }
 }
@@ -748,7 +800,10 @@ fn run_app(terminal: &mut DefaultTerminal, config: TuiConfig, theme: Theme) -> a
         // Poll for events with 100ms timeout for spinner animation
         if event::poll(Duration::from_millis(100))? {
             let ev = event::read()?;
-            if app.update_status.shows_overlay() {
+            // Priority chain: quit_confirm > update > main
+            if app.quit_confirm.is_some() {
+                app.handle_quit_confirm_event(ev);
+            } else if app.update_status.shows_overlay() {
                 app.handle_update_event(ev);
             } else {
                 app.handle_event(ev);
@@ -826,22 +881,27 @@ mod tests {
     }
 
     #[test]
-    fn test_app_quit_on_q() {
+    fn test_app_quit_on_q_shows_confirmation() {
         let mut app = App::default();
         assert!(!app.should_quit());
+        assert!(app.quit_confirm.is_none());
 
         let event = Event::Key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
         app.handle_event(event);
 
-        assert!(app.should_quit());
+        // Should show quit confirmation, not quit immediately
+        assert!(!app.should_quit());
+        assert!(app.quit_confirm.is_some());
     }
 
     #[test]
-    fn test_app_quit_on_esc() {
+    fn test_app_quit_on_esc_shows_confirmation() {
         let mut app = App::default();
         let event = Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         app.handle_event(event);
-        assert!(app.should_quit());
+        // Should show quit confirmation, not quit immediately
+        assert!(!app.should_quit());
+        assert!(app.quit_confirm.is_some());
     }
 
     #[test]
@@ -1244,10 +1304,10 @@ mod tests {
         let mut app = App::default();
         assert_eq!(app.update_status, UpdateStatus::Checking);
 
-        // 'q' via handle_event should quit (proving handle_event runs, not handle_update_event)
+        // 'q' via handle_event should show quit_confirm (proving handle_event runs, not handle_update_event)
         let event = Event::Key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
         app.handle_event(event);
-        assert!(app.should_quit());
+        assert!(app.quit_confirm.is_some()); // Shows quit confirmation popup
     }
 
     #[test]
@@ -1299,5 +1359,175 @@ mod tests {
     #[test]
     fn test_is_copilot_provider_none() {
         assert!(!is_copilot_provider(None));
+    }
+
+    // ========== Quit confirm popup tests ==========
+
+    #[test]
+    fn test_q_shows_quit_confirm_popup() {
+        let mut app = App::default();
+        assert!(app.quit_confirm.is_none());
+
+        let event = Event::Key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
+        app.handle_event(event);
+
+        assert!(app.quit_confirm.is_some());
+        assert!(!app.should_quit()); // Should not quit yet
+    }
+
+    #[test]
+    fn test_esc_shows_quit_confirm_popup() {
+        let mut app = App::default();
+        let event = Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        app.handle_event(event);
+
+        assert!(app.quit_confirm.is_some());
+        assert!(!app.should_quit());
+    }
+
+    #[test]
+    fn test_ctrl_c_shows_quit_confirm_popup() {
+        let mut app = App::default();
+        let event = Event::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        app.handle_event(event);
+
+        assert!(app.quit_confirm.is_some());
+        assert!(!app.should_quit());
+    }
+
+    #[test]
+    fn test_quit_confirm_default_is_no() {
+        let mut app = App::default();
+        app.handle_event(Event::Key(KeyEvent::new(
+            KeyCode::Char('q'),
+            KeyModifiers::NONE,
+        )));
+
+        // Default selection should be No (1)
+        assert_eq!(app.quit_confirm.as_ref().unwrap().selection, 1);
+    }
+
+    #[test]
+    fn test_quit_confirm_yes_quits() {
+        let mut app = App {
+            quit_confirm: Some(QuitConfirmState { selection: 0 }), // Yes selected
+            ..App::default()
+        };
+
+        let event = Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        app.handle_quit_confirm_event(event);
+
+        assert!(app.should_quit());
+        assert!(app.quit_confirm.is_none());
+    }
+
+    #[test]
+    fn test_quit_confirm_no_cancels() {
+        let mut app = App {
+            quit_confirm: Some(QuitConfirmState { selection: 1 }), // No selected
+            ..App::default()
+        };
+
+        let event = Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        app.handle_quit_confirm_event(event);
+
+        assert!(!app.should_quit());
+        assert!(app.quit_confirm.is_none());
+    }
+
+    #[test]
+    fn test_quit_confirm_esc_cancels() {
+        let mut app = App {
+            quit_confirm: Some(QuitConfirmState { selection: 0 }), // Yes selected
+            ..App::default()
+        };
+
+        let event = Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        app.handle_quit_confirm_event(event);
+
+        assert!(!app.should_quit());
+        assert!(app.quit_confirm.is_none());
+    }
+
+    #[test]
+    fn test_quit_confirm_n_key_cancels() {
+        let mut app = App {
+            quit_confirm: Some(QuitConfirmState { selection: 0 }),
+            ..App::default()
+        };
+
+        let event = Event::Key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
+        app.handle_quit_confirm_event(event);
+
+        assert!(!app.should_quit());
+        assert!(app.quit_confirm.is_none());
+    }
+
+    #[test]
+    fn test_quit_confirm_y_key_quits() {
+        let mut app = App {
+            quit_confirm: Some(QuitConfirmState { selection: 1 }), // No selected
+            ..App::default()
+        };
+
+        // 'y' should quit immediately regardless of selection
+        let event = Event::Key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
+        app.handle_quit_confirm_event(event);
+
+        assert!(app.should_quit());
+        assert!(app.quit_confirm.is_none());
+    }
+
+    #[test]
+    fn test_quit_confirm_arrow_toggles() {
+        let mut app = App {
+            quit_confirm: Some(QuitConfirmState { selection: 1 }), // No selected
+            ..App::default()
+        };
+
+        // Left arrow toggles to Yes
+        let event = Event::Key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+        app.handle_quit_confirm_event(event);
+        assert_eq!(app.quit_confirm.as_ref().unwrap().selection, 0);
+
+        // Right arrow toggles back to No
+        let event = Event::Key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        app.handle_quit_confirm_event(event);
+        assert_eq!(app.quit_confirm.as_ref().unwrap().selection, 1);
+
+        // Up/Down also toggle
+        let event = Event::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+        app.handle_quit_confirm_event(event);
+        assert_eq!(app.quit_confirm.as_ref().unwrap().selection, 0);
+
+        let event = Event::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        app.handle_quit_confirm_event(event);
+        assert_eq!(app.quit_confirm.as_ref().unwrap().selection, 1);
+    }
+
+    #[test]
+    fn test_quit_confirm_priority_over_update() {
+        let mut app = App {
+            update_status: UpdateStatus::Available {
+                current: "0.1.0".to_string(),
+                latest: "0.2.0".to_string(),
+            },
+            quit_confirm: Some(QuitConfirmState { selection: 1 }),
+            ..App::default()
+        };
+
+        // 'y' in quit_confirm should quit, not interact with update overlay
+        let event = Event::Key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
+        app.handle_quit_confirm_event(event);
+
+        assert!(app.should_quit());
+        // Update status should be unchanged
+        assert!(matches!(app.update_status, UpdateStatus::Available { .. }));
+    }
+
+    #[test]
+    fn test_app_new_has_no_quit_confirm() {
+        let app = App::new(TuiConfig::default(), Theme::Dark);
+        assert!(app.quit_confirm.is_none());
     }
 }
