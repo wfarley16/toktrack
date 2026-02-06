@@ -14,4 +14,6 @@ pub enum CacheWarning {
     LoadFailed(String),
     /// Cache file was corrupted (invalid JSON)
     Corrupted(String),
+    /// Cache version mismatch — needs rebuild
+    VersionMismatch(String),
 }

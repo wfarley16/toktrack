@@ -41,9 +41,15 @@ fn normalize_model_keys(models: HashMap<String, ModelUsage>) -> HashMap<String, 
     normalized
 }
 
+/// Bump when aggregation logic changes (e.g., timezone fix).
+/// Mismatched version → full cache invalidation.
+const CACHE_VERSION: u32 = 2;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DailySummaryCache {
     pub cli: String,
+    #[serde(default)]
+    pub version: u32,
     pub updated_at: i64,
     pub summaries: Vec<DailySummary>,
 }
@@ -183,6 +189,17 @@ impl DailySummaryCacheService {
             }
         };
 
+        if cache.version != CACHE_VERSION {
+            let _ = file.unlock();
+            return (
+                Vec::new(),
+                Some(CacheWarning::VersionMismatch(format!(
+                    "Cache version {} != {}, rebuilding",
+                    cache.version, CACHE_VERSION
+                ))),
+            );
+        }
+
         let _ = file.unlock();
 
         // Migrate model names: normalize keys in the models HashMap
@@ -205,6 +222,7 @@ impl DailySummaryCacheService {
 
         let cache = DailySummaryCache {
             cli: cli.to_string(),
+            version: CACHE_VERSION,
             updated_at: chrono::Utc::now().timestamp(),
             summaries: summaries.to_vec(),
         };
@@ -245,7 +263,7 @@ impl DailySummaryCacheService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{TimeZone, Utc};
+    use chrono::{Datelike, TimeZone, Utc};
     use std::collections::HashMap;
     use tempfile::TempDir;
 
@@ -319,6 +337,7 @@ mod tests {
         };
         let cache = DailySummaryCache {
             cli: "claude-code".to_string(),
+            version: CACHE_VERSION,
             updated_at: chrono::Utc::now().timestamp(),
             summaries: vec![cached_summary],
         };
@@ -421,6 +440,7 @@ mod tests {
         };
         let cache = DailySummaryCache {
             cli: "claude-code".to_string(),
+            version: CACHE_VERSION,
             updated_at: chrono::Utc::now().timestamp(),
             summaries: vec![cached_summary],
         };
@@ -489,6 +509,7 @@ mod tests {
         };
         let cache = DailySummaryCache {
             cli: "claude-code".to_string(),
+            version: CACHE_VERSION,
             updated_at: chrono::Utc::now().timestamp(),
             summaries: vec![cached_summary],
         };
@@ -624,6 +645,7 @@ mod tests {
         };
         let cache = DailySummaryCache {
             cli: "claude-code".to_string(),
+            version: CACHE_VERSION,
             updated_at: chrono::Utc::now().timestamp(),
             summaries: vec![cached_summary],
         };
@@ -648,5 +670,127 @@ mod tests {
         assert_eq!(model.output_tokens, 150); // 50 + 100
         assert!((model.cost_usd - 0.30).abs() < f64::EPSILON); // 0.10 + 0.20
         assert_eq!(model.count, 3); // 1 + 2
+    }
+
+    // Test 12: Old cache without version (deserialized as 0) triggers VersionMismatch
+    #[test]
+    fn test_old_cache_version_mismatch() {
+        let (service, _temp) = create_test_service();
+        let yesterday = Local::now().date_naive() - chrono::Duration::days(1);
+
+        // Write cache JSON without "version" field (simulates pre-versioning cache)
+        let json = serde_json::json!({
+            "cli": "claude-code",
+            "updated_at": chrono::Utc::now().timestamp(),
+            "summaries": [{
+                "date": yesterday.to_string(),
+                "total_input_tokens": 999,
+                "total_output_tokens": 999,
+                "total_cache_read_tokens": 0,
+                "total_cache_creation_tokens": 0,
+                "total_thinking_tokens": 0,
+                "total_cost_usd": 9.99,
+                "models": {}
+            }]
+        });
+        let cache_path = service.cache_path("claude-code");
+        fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
+        fs::write(&cache_path, json.to_string()).unwrap();
+
+        let entries = vec![make_entry(
+            yesterday.year(),
+            yesterday.month(),
+            yesterday.day(),
+            Some("claude"),
+            100,
+            50,
+            Some(0.01),
+        )];
+
+        let (result, warning) = service.load_or_compute("claude-code", &entries).unwrap();
+
+        // Should return VersionMismatch warning
+        assert!(matches!(warning, Some(CacheWarning::VersionMismatch(_))));
+        // Old cached value (999) should be discarded; recomputed from entries
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].total_input_tokens, 100);
+    }
+
+    // Test 13: Matching version loads cache normally
+    #[test]
+    fn test_matching_version_loads_normally() {
+        let (service, _temp) = create_test_service();
+        let yesterday = Local::now().date_naive() - chrono::Duration::days(1);
+
+        let cached_summary = DailySummary {
+            date: yesterday,
+            total_input_tokens: 500,
+            total_output_tokens: 250,
+            total_cache_read_tokens: 0,
+            total_cache_creation_tokens: 0,
+            total_thinking_tokens: 0,
+            total_cost_usd: 0.50,
+            models: HashMap::new(),
+        };
+        let cache = DailySummaryCache {
+            cli: "claude-code".to_string(),
+            version: CACHE_VERSION,
+            updated_at: chrono::Utc::now().timestamp(),
+            summaries: vec![cached_summary],
+        };
+        let cache_path = service.cache_path("claude-code");
+        fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
+        fs::write(&cache_path, serde_json::to_string(&cache).unwrap()).unwrap();
+
+        // No entries — should rely entirely on cache
+        let entries: Vec<UsageEntry> = vec![];
+        let (result, warning) = service.load_or_compute("claude-code", &entries).unwrap();
+
+        assert!(warning.is_none());
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].total_input_tokens, 500);
+    }
+
+    // Test 14: Explicit version mismatch (future version) triggers rebuild
+    #[test]
+    fn test_explicit_version_mismatch_triggers_rebuild() {
+        let (service, _temp) = create_test_service();
+        let yesterday = Local::now().date_naive() - chrono::Duration::days(1);
+
+        // Write cache with a mismatched version (e.g., version 999)
+        let json = serde_json::json!({
+            "cli": "claude-code",
+            "version": 999,
+            "updated_at": chrono::Utc::now().timestamp(),
+            "summaries": [{
+                "date": yesterday.to_string(),
+                "total_input_tokens": 888,
+                "total_output_tokens": 444,
+                "total_cache_read_tokens": 0,
+                "total_cache_creation_tokens": 0,
+                "total_thinking_tokens": 0,
+                "total_cost_usd": 8.88,
+                "models": {}
+            }]
+        });
+        let cache_path = service.cache_path("claude-code");
+        fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
+        fs::write(&cache_path, json.to_string()).unwrap();
+
+        let entries = vec![make_entry(
+            yesterday.year(),
+            yesterday.month(),
+            yesterday.day(),
+            Some("claude"),
+            200,
+            100,
+            Some(0.02),
+        )];
+
+        let (result, warning) = service.load_or_compute("claude-code", &entries).unwrap();
+
+        assert!(matches!(warning, Some(CacheWarning::VersionMismatch(_))));
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].total_input_tokens, 200); // Recomputed, not 888
     }
 }
