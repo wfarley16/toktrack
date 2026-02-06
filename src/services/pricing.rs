@@ -74,14 +74,42 @@ impl PricingService {
         Ok(Self { cache, cache_path })
     }
 
-    /// Create a PricingService from cache only (no network).
-    /// Returns None if no cache file exists. Uses expired cache if available.
+    /// Create a PricingService, preferring cache but refreshing if expired or corrupt.
+    /// Returns None only if no cache exists AND network fetch fails.
     pub fn from_cache_only() -> Option<Self> {
         let cache_path = Self::default_cache_path().ok()?;
-        Self::from_cache_only_with_path(&cache_path)
+
+        match Self::load_cache(&cache_path) {
+            Ok(cache) if !cache.is_expired() => Some(Self { cache, cache_path }),
+            Ok(cache) => {
+                // Expired → try refresh, fallback to expired cache
+                if let Ok(fresh) = Self::fetch_pricing() {
+                    let _ = Self::save_cache(&cache_path, &fresh);
+                    Some(Self {
+                        cache: fresh,
+                        cache_path,
+                    })
+                } else {
+                    Some(Self { cache, cache_path })
+                }
+            }
+            Err(_) => {
+                // Corrupt or unreadable → try fresh fetch to recover
+                if let Ok(fresh) = Self::fetch_pricing() {
+                    let _ = Self::save_cache(&cache_path, &fresh);
+                    Some(Self {
+                        cache: fresh,
+                        cache_path,
+                    })
+                } else {
+                    None
+                }
+            }
+        }
     }
 
     /// Cache-only constructor with custom path (for testing)
+    #[allow(dead_code)]
     pub fn from_cache_only_with_path(cache_path: &PathBuf) -> Option<Self> {
         let cache = Self::load_cache(cache_path).ok()?;
         Some(Self {
@@ -573,5 +601,18 @@ mod tests {
         let service = PricingService::from_cache_only_with_path(&cache_path);
         assert!(service.is_some());
         assert_eq!(service.unwrap().model_count(), 1);
+    }
+
+    #[test]
+    fn test_from_cache_only_corrupt_cache_returns_none() {
+        let temp_dir = TempDir::new().unwrap();
+        let cache_path = temp_dir.path().join("pricing.json");
+
+        // Write corrupt JSON
+        fs::write(&cache_path, "not valid json{{{").unwrap();
+
+        // Corrupt cache with no network → should return None
+        let service = PricingService::from_cache_only_with_path(&cache_path);
+        assert!(service.is_none());
     }
 }
