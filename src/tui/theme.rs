@@ -12,6 +12,26 @@ pub enum HeatmapLevel {
     Max,
 }
 
+/// Spike detection level for cost coloring
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpikeLevel {
+    Normal,
+    Elevated,
+    High,
+}
+
+/// Determine spike level for a cost value relative to the daily average.
+/// Returns Normal if avg_cost is 0 (no data or single day).
+pub fn spike_level(cost: f64, avg_cost: f64) -> SpikeLevel {
+    if avg_cost > 0.0 && cost >= avg_cost * 2.0 {
+        SpikeLevel::High
+    } else if avg_cost > 0.0 && cost >= avg_cost * 1.5 {
+        SpikeLevel::Elevated
+    } else {
+        SpikeLevel::Normal
+    }
+}
+
 /// Terminal color scheme (dark or light background)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Theme {
@@ -90,16 +110,16 @@ impl Theme {
     /// Spike warning color (elevated spending: 1.5x~2x daily avg)
     pub fn spike_warn(self) -> Color {
         match self {
-            Self::Dark => Color::Yellow,
-            Self::Light => Color::Indexed(130), // dark orange/yellow (ANSI 256)
+            Self::Dark => Color::Indexed(208), // orange (ANSI 256) — distinct from Yellow date
+            Self::Light => Color::Indexed(166), // dark orange (ANSI 256)
         }
     }
 
     /// Spike high color (spike spending: >= 2x daily avg)
     pub fn spike_high(self) -> Color {
         match self {
-            Self::Dark => Color::LightRed,
-            Self::Light => Color::Indexed(124), // dark red (ANSI 256)
+            Self::Dark => Color::Indexed(196), // bright red (ANSI 256) — distinct from Magenta cost
+            Self::Light => Color::Indexed(160), // strong red (ANSI 256)
         }
     }
 
@@ -116,6 +136,15 @@ impl Theme {
         match self {
             Self::Dark => Color::LightRed,
             Self::Light => Color::Red,
+        }
+    }
+
+    /// Spike detection color based on spike level
+    pub fn spike_color(self, level: SpikeLevel) -> Color {
+        match level {
+            SpikeLevel::Normal => self.text(),
+            SpikeLevel::Elevated => self.spike_warn(),
+            SpikeLevel::High => self.spike_high(),
         }
     }
 
@@ -156,8 +185,8 @@ mod tests {
         assert_eq!(t.error(), Color::Red);
         assert_eq!(t.stat_blue(), Color::Blue);
         assert_eq!(t.stat_warm(), Color::LightRed);
-        assert_eq!(t.spike_warn(), Color::Yellow);
-        assert_eq!(t.spike_high(), Color::LightRed);
+        assert_eq!(t.spike_warn(), Color::Indexed(208));
+        assert_eq!(t.spike_high(), Color::Indexed(196));
     }
 
     #[test]
@@ -172,8 +201,8 @@ mod tests {
         assert_eq!(t.error(), Color::Indexed(124));
         assert_eq!(t.stat_blue(), Color::Indexed(25));
         assert_eq!(t.stat_warm(), Color::Red);
-        assert_eq!(t.spike_warn(), Color::Indexed(130));
-        assert_eq!(t.spike_high(), Color::Indexed(124));
+        assert_eq!(t.spike_warn(), Color::Indexed(166));
+        assert_eq!(t.spike_high(), Color::Indexed(160));
     }
 
     #[test]
@@ -199,5 +228,54 @@ mod tests {
         assert_eq!(t.heatmap_color(HeatmapLevel::Medium), Color::Indexed(157));
         assert_eq!(t.heatmap_color(HeatmapLevel::High), Color::Indexed(71));
         assert_eq!(t.heatmap_color(HeatmapLevel::Max), Color::Indexed(28));
+    }
+
+    // ========== Spike level tests ==========
+
+    #[test]
+    fn test_spike_level_normal() {
+        assert_eq!(spike_level(1.0, 1.0), SpikeLevel::Normal);
+        assert_eq!(spike_level(1.49, 1.0), SpikeLevel::Normal);
+    }
+
+    #[test]
+    fn test_spike_level_elevated() {
+        assert_eq!(spike_level(1.5, 1.0), SpikeLevel::Elevated);
+        assert_eq!(spike_level(1.99, 1.0), SpikeLevel::Elevated);
+    }
+
+    #[test]
+    fn test_spike_level_high() {
+        assert_eq!(spike_level(2.0, 1.0), SpikeLevel::High);
+        assert_eq!(spike_level(5.0, 1.0), SpikeLevel::High);
+    }
+
+    #[test]
+    fn test_spike_level_zero_avg() {
+        assert_eq!(spike_level(0.0, 0.0), SpikeLevel::Normal);
+        assert_eq!(spike_level(100.0, 0.0), SpikeLevel::Normal);
+    }
+
+    #[test]
+    fn test_spike_level_zero_cost() {
+        assert_eq!(spike_level(0.0, 1.0), SpikeLevel::Normal);
+    }
+
+    // ========== Spike color tests ==========
+
+    #[test]
+    fn test_dark_spike_color() {
+        let t = Theme::Dark;
+        assert_eq!(t.spike_color(SpikeLevel::Normal), t.text());
+        assert_eq!(t.spike_color(SpikeLevel::Elevated), t.spike_warn());
+        assert_eq!(t.spike_color(SpikeLevel::High), t.spike_high());
+    }
+
+    #[test]
+    fn test_light_spike_color() {
+        let t = Theme::Light;
+        assert_eq!(t.spike_color(SpikeLevel::Normal), t.text());
+        assert_eq!(t.spike_color(SpikeLevel::Elevated), t.spike_warn());
+        assert_eq!(t.spike_color(SpikeLevel::High), t.spike_high());
     }
 }

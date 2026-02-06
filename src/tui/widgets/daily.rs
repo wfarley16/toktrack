@@ -11,7 +11,7 @@ use ratatui::{
 use super::overview::format_number;
 use super::tabs::{Tab, TabBar};
 use crate::services::{display_name, Aggregator};
-use crate::tui::theme::Theme;
+use crate::tui::theme::{spike_level, Theme};
 use crate::types::DailySummary;
 
 /// View mode within the Daily tab
@@ -111,26 +111,6 @@ impl DailyData {
     /// Calculate maximum scroll offset for a given item count
     pub fn max_scroll_offset_for(count: usize) -> usize {
         count.saturating_sub(VISIBLE_ROWS)
-    }
-}
-
-/// Spike detection level for cost coloring
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SpikeLevel {
-    Normal,
-    Elevated,
-    High,
-}
-
-/// Determine spike level for a cost value relative to the daily average.
-/// Returns Normal if avg_cost is 0 (no data or single day).
-pub fn spike_level(cost: f64, avg_cost: f64) -> SpikeLevel {
-    if avg_cost > 0.0 && cost >= avg_cost * 2.0 {
-        SpikeLevel::High
-    } else if avg_cost > 0.0 && cost >= avg_cost * 1.5 {
-        SpikeLevel::Elevated
-    } else {
-        SpikeLevel::Normal
     }
 }
 
@@ -329,7 +309,7 @@ impl DailyView<'_> {
                     .fg(self.theme.accent())
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(self.theme.muted())
+                Style::default().fg(self.theme.text())
             };
             spans.push(Span::styled(format!("{}:{}", key, mode.label()), style));
         }
@@ -548,10 +528,11 @@ impl DailyView<'_> {
                     Style::default().fg(self.theme.text()),
                 ),
                 COL_COST => {
-                    let cost_color = match spike_level(summary.total_cost_usd, self.avg_cost) {
-                        SpikeLevel::High => self.theme.spike_high(),
-                        SpikeLevel::Elevated => self.theme.spike_warn(),
-                        SpikeLevel::Normal => self.theme.cost(),
+                    let cost_color = if self.view_mode == DailyViewMode::Daily {
+                        self.theme
+                            .spike_color(spike_level(summary.total_cost_usd, self.avg_cost))
+                    } else {
+                        self.theme.text()
                     };
                     (
                         format!("{:>12}", format!("${:.2}", summary.total_cost_usd)),
@@ -854,41 +835,5 @@ mod tests {
         // Very wide terminal should still show all 8
         let cols = visible_columns(200);
         assert_eq!(cols.len(), 8);
-    }
-
-    // ========== Spike level tests ==========
-
-    #[test]
-    fn test_spike_level_normal() {
-        // Below 1.5x avg → Normal
-        assert_eq!(spike_level(1.0, 1.0), SpikeLevel::Normal);
-        assert_eq!(spike_level(1.49, 1.0), SpikeLevel::Normal);
-    }
-
-    #[test]
-    fn test_spike_level_elevated() {
-        // 1.5x..2x avg → Elevated
-        assert_eq!(spike_level(1.5, 1.0), SpikeLevel::Elevated);
-        assert_eq!(spike_level(1.99, 1.0), SpikeLevel::Elevated);
-    }
-
-    #[test]
-    fn test_spike_level_high() {
-        // >= 2x avg → High
-        assert_eq!(spike_level(2.0, 1.0), SpikeLevel::High);
-        assert_eq!(spike_level(5.0, 1.0), SpikeLevel::High);
-    }
-
-    #[test]
-    fn test_spike_level_zero_avg() {
-        // avg=0 → always Normal (edge case: no data or single day)
-        assert_eq!(spike_level(0.0, 0.0), SpikeLevel::Normal);
-        assert_eq!(spike_level(100.0, 0.0), SpikeLevel::Normal);
-    }
-
-    #[test]
-    fn test_spike_level_zero_cost() {
-        // cost=0 with non-zero avg → Normal
-        assert_eq!(spike_level(0.0, 1.0), SpikeLevel::Normal);
     }
 }

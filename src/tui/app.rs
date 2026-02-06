@@ -882,10 +882,10 @@ mod tests {
         // Tab forward
         let event = Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
         app.handle_event(event);
-        assert_eq!(app.current_tab, Tab::Models);
+        assert_eq!(app.current_tab, Tab::Daily);
 
         app.handle_event(Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)));
-        assert_eq!(app.current_tab, Tab::Daily);
+        assert_eq!(app.current_tab, Tab::Models);
 
         app.handle_event(Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)));
         assert_eq!(app.current_tab, Tab::Stats);
@@ -909,7 +909,7 @@ mod tests {
             KeyCode::BackTab,
             KeyModifiers::SHIFT,
         )));
-        assert_eq!(app.current_tab, Tab::Daily);
+        assert_eq!(app.current_tab, Tab::Models);
     }
 
     #[test]
@@ -917,20 +917,20 @@ mod tests {
         let mut app = App::default();
         assert_eq!(app.current_tab, Tab::Overview);
 
-        // Press '2' to go to Models
+        // Press '2' to go to Daily
         let event = Event::Key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE));
         app.handle_event(event);
-        assert_eq!(app.current_tab, Tab::Models);
+        assert_eq!(app.current_tab, Tab::Daily);
 
         // Press '4' to go to Stats
         let event = Event::Key(KeyEvent::new(KeyCode::Char('4'), KeyModifiers::NONE));
         app.handle_event(event);
         assert_eq!(app.current_tab, Tab::Stats);
 
-        // Press '3' to go to Daily
+        // Press '3' to go to Models
         let event = Event::Key(KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE));
         app.handle_event(event);
-        assert_eq!(app.current_tab, Tab::Daily);
+        assert_eq!(app.current_tab, Tab::Models);
 
         // Press '1' to go back to Overview
         let event = Event::Key(KeyEvent::new(KeyCode::Char('1'), KeyModifiers::NONE));

@@ -62,4 +62,11 @@
 - **구현 방향**: Daily 뷰 spike 색상 강조 (2x+→빨강, 1.5x+→노랑), heatmap 강조, Stats에 spike 통계 추가
 - **재검토 조건**: config 시스템이 다른 이유로 도입되는 시점에 Passive Advisor 재검토
 - **참조**: https://github.com/mag123c/toktrack/issues/46
+- **구현 노트** (후속):
+  - Normal cost 색상: `cost()` → `text()` (spike 색상 대비 극대화, 흰색/검정 기반)
+  - Weekly/Monthly 모드: spike 판정 비활성화 (집계 구간이 다르므로 Daily avg 비교 무의미)
+  - 탭 순서: Overview → Daily → Models → Stats (Daily 사용 빈도 우선)
+  - `SpikeLevel` + `spike_level()` → `theme.rs` 이동 (HeatmapLevel과 동일 패턴)
+  - d/w/m 비활성 모드 색상: `muted()` → `text()` (VSCode 터미널 DarkGray 가독성 문제)
+  - **후속 검토**: Total 집계 행 spike 처리 (별도 이슈)
 
