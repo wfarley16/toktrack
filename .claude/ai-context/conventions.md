@@ -53,6 +53,13 @@ scopes: parser|tui|services|cache|cli
 - Minimize allocations
 - Benchmark vs ccusage
 
+## Project Decisions
+
+See `.dev/DECISIONS.md` for design decision history.
+Verify new features do not conflict with existing decisions.
+
+---
+
 ## Paradigm
 
 ### Trait-based Polymorphism

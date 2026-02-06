@@ -127,7 +127,7 @@ impl<'a> Widget for UpdatePopup<'a> {
             (
                 "▸ ",
                 Style::default()
-                    .fg(Color::LightGreen)
+                    .fg(self.theme.bar())
                     .add_modifier(Modifier::BOLD),
             )
         } else {
@@ -145,7 +145,7 @@ impl<'a> Widget for UpdatePopup<'a> {
             (
                 "▸ ",
                 Style::default()
-                    .fg(Color::LightGreen)
+                    .fg(self.theme.bar())
                     .add_modifier(Modifier::BOLD),
             )
         } else {

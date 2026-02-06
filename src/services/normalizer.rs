@@ -12,8 +12,11 @@
 /// - "claude-haiku-4-5" → "Haiku 4.5"
 /// - "gpt-4o" → "GPT-4o"
 /// - "gpt-4o-mini" → "GPT-4o Mini"
+/// - "gpt-4-1" → "GPT-4.1"
+/// - "gpt-4-1-mini" → "GPT-4.1 Mini"
 /// - "gemini-2-5-pro" → "Gemini 2.5 Pro"
-/// - "o1" → "o1" (passthrough)
+/// - "o1" → "o1", "o4-mini" → "o4 Mini"
+/// - "codex-mini-latest" → "Codex Mini"
 pub fn display_name(normalized: &str) -> String {
     if normalized.is_empty() {
         return String::new();
@@ -34,9 +37,16 @@ pub fn display_name(normalized: &str) -> String {
         return parse_gemini_name(rest);
     }
 
-    // OpenAI o-series: o1, o1-mini, o3-mini
-    if normalized.starts_with("o1") || normalized.starts_with("o3") {
-        return parse_o_series(normalized);
+    // Codex: codex-{variant}(-latest) → Codex {Variant}
+    if let Some(rest) = normalized.strip_prefix("codex-") {
+        return parse_codex_name(rest);
+    }
+
+    // OpenAI o-series: o{N}, o{N}-mini, o{N}-pro, etc.
+    if let Some(rest) = normalized.strip_prefix('o') {
+        if rest.starts_with(|c: char| c.is_ascii_digit()) {
+            return parse_o_series(normalized);
+        }
     }
 
     // Fallback: return as-is
@@ -59,15 +69,31 @@ fn parse_claude_name(rest: &str) -> String {
     format!("{} {}", family, version)
 }
 
-/// Parse GPT model name: {variant}(-{suffix}) → GPT-{variant}( {Suffix})
+/// Parse GPT model name with minor version support:
+/// - "4o" → "GPT-4o"
+/// - "4o-mini" → "GPT-4o Mini"
+/// - "4-1" → "GPT-4.1"
+/// - "4-1-mini" → "GPT-4.1 Mini"
+/// - "4-turbo" → "GPT-4 Turbo"
 fn parse_gpt_name(rest: &str) -> String {
-    // Handle special case: "4o-mini" → "4o Mini"
-    // Handle: "4-turbo" → "4 Turbo"
-    // Handle: "4o" → "4o"
-    if let Some(pos) = rest.find('-') {
-        let variant = &rest[..pos];
-        let suffix = &rest[pos + 1..];
-        format!("GPT-{} {}", variant, capitalize(suffix))
+    let parts: Vec<&str> = rest.split('-').collect();
+    let variant = parts[0];
+    // Second segment is 1-2 digit number → minor version (e.g., "4-1" → "4.1")
+    if parts.len() >= 2
+        && !parts[1].is_empty()
+        && parts[1].len() <= 2
+        && parts[1].chars().all(|c| c.is_ascii_digit())
+    {
+        let version = format!("{}.{}", variant, parts[1]);
+        if parts.len() > 2 {
+            let suffix: Vec<String> = parts[2..].iter().map(|p| capitalize(p)).collect();
+            format!("GPT-{} {}", version, suffix.join(" "))
+        } else {
+            format!("GPT-{}", version)
+        }
+    } else if parts.len() > 1 {
+        let suffix: Vec<String> = parts[1..].iter().map(|p| capitalize(p)).collect();
+        format!("GPT-{} {}", variant, suffix.join(" "))
     } else {
         format!("GPT-{}", rest)
     }
@@ -106,7 +132,17 @@ fn parse_gemini_name(rest: &str) -> String {
     }
 }
 
-/// Parse OpenAI o-series: o1, o1-mini, o3-mini
+/// Parse Codex model name: codex-{variant}(-latest) → Codex {Variant}
+fn parse_codex_name(rest: &str) -> String {
+    let rest = rest.strip_suffix("-latest").unwrap_or(rest);
+    if rest.is_empty() {
+        return "Codex".to_string();
+    }
+    let parts: Vec<String> = rest.split('-').map(capitalize).collect();
+    format!("Codex {}", parts.join(" "))
+}
+
+/// Parse OpenAI o-series: o{N}, o{N}-mini, o{N}-pro, etc.
 fn parse_o_series(name: &str) -> String {
     // e.g., "o1" → "o1"
     // e.g., "o1-mini" → "o1 Mini"
@@ -229,6 +265,41 @@ mod tests {
     #[test]
     fn test_display_name_o3_mini() {
         assert_eq!(display_name("o3-mini"), "o3 Mini");
+    }
+
+    #[test]
+    fn test_display_name_gpt_4_1() {
+        assert_eq!(display_name("gpt-4-1"), "GPT-4.1");
+    }
+
+    #[test]
+    fn test_display_name_gpt_4_1_mini() {
+        assert_eq!(display_name("gpt-4-1-mini"), "GPT-4.1 Mini");
+    }
+
+    #[test]
+    fn test_display_name_gpt_5_2_codex() {
+        assert_eq!(display_name("gpt-5-2-codex"), "GPT-5.2 Codex");
+    }
+
+    #[test]
+    fn test_display_name_o4_mini() {
+        assert_eq!(display_name("o4-mini"), "o4 Mini");
+    }
+
+    #[test]
+    fn test_display_name_o4() {
+        assert_eq!(display_name("o4"), "o4");
+    }
+
+    #[test]
+    fn test_display_name_codex_mini_latest() {
+        assert_eq!(display_name("codex-mini-latest"), "Codex Mini");
+    }
+
+    #[test]
+    fn test_display_name_codex_mini() {
+        assert_eq!(display_name("codex-mini"), "Codex Mini");
     }
 
     #[test]

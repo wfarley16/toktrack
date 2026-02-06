@@ -70,3 +70,15 @@
   - d/w/m 비활성 모드 색상: `muted()` → `text()` (VSCode 터미널 DarkGray 가독성 문제)
   - **후속 검토**: Total 집계 행 spike 처리 (별도 이슈)
 
+## 2026-02-06: multi-llm-review-fixes
+- **결정**: 5개 AI LLM 코드리뷰에서 11건 수용, 나머지 기각. P0(데이터 무결성) 최우선
+- **이유**: (1) warm path 데이터 누락/캐시 고착은 사용자에게 부정확한 데이터 노출 (2) thinking_tokens 누락은 Gemini/OpenCode 사용자 비용 추적 불가 (3) codex-gpt-5-3이 실제 바이너리 재현으로 증명한 이슈 우선
+- **기각 기준**: 추측 기반(unsafe simd_json "critical"), micro-optimization(String alloc), nice-to-have(magic numbers 전면 정리)
+- **대안**: 전체 리팩토링 — YAGNI 원칙에 따라 검증된 이슈만 수정
+- **참조**: .dev/specs/review-fixes/PLAN.md
+
+## 2026-02-06: update-popup-readability-and-model-parsing
+- **결정**: Update Popup 선택 색상 테마 통합 + 모델명 파싱 개선 (GPT 4.1, o-series 일반화, Codex)
+- **이유**: (1) LightGreen 하드코딩 → 라이트 테마에서 가독성 불량, `theme.bar()` 사용으로 통일 (2) `gpt-4.1` → `GPT-4 1` 파싱 오류 (3) o1/o3 하드코딩으로 o4-mini 미처리 (4) codex-mini-latest 미처리
+- **변경**: update_popup.rs 색상 2곳, normalizer.rs parse_gpt_name 재작성 + o-series 일반화 + codex 핸들러 추가
+

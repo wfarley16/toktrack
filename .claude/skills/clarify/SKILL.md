@@ -19,100 +19,121 @@ allowed-tools:
 # /clarify — Adaptive Requirements Clarification
 
 ## Chain (MUST)
-| 이전 | 현재 | 다음 |
-|------|------|------|
-| 세션 시작 | /clarify | EnterPlanMode() → /implement |
+| Previous | Current | Next |
+|----------|---------|------|
+| Session start | /clarify | EnterPlanMode() → /implement |
 
 ## Core Model
 
 ```
-/clarify → 복잡도 측정 → 충분히 명확?
-                          ├─ Yes → EnterPlanMode()
-                          └─ No  → 더 깊은 clarify (탐색, 분석, DRAFT...)
-                                   → 재측정 → 반복
+/clarify → Measure complexity → Clear enough?
+                                ├─ Yes → EnterPlanMode()
+                                └─ No  → Deeper clarify (explore, analyze, DRAFT...)
+                                         → Re-measure → Repeat
 ```
 
-종료 조건: **"이 정보로 구현 가능한가?"**
+Exit condition: **"Is this enough info to implement?"**
 
 ---
 
 ## Step 0: Route — Complexity Assessment
 
-요청 수신 즉시 내부적으로 복잡도를 측정한다 (사용자에게 노출하지 않음).
+Measure complexity internally upon receiving request (do not expose to user).
 
 ### Complexity Signals
 
 | Signal | LOW | HIGH |
 |--------|-----|------|
-| 요청 길이 | 짧고 구체적 | 길거나 모호 |
-| 키워드 | "추가", "수정", "고쳐줘" | "설계", "마이그레이션", "처음부터" |
-| 불확실성 표현 | 없음 | "잘 모르겠는데", "어떻게 해야 할지" |
-| 영향 범위 | 단일 파일/모듈 | 크로스커팅, 여러 서비스 |
-| 리스크 | 낮음 (UI, 텍스트) | 높음 (DB, 인증, 브레이킹 API) |
-| 기존 패턴 | 명확히 존재 | 없거나 낯선 스택 |
+| Request length | Short and specific | Long or ambiguous |
+| Keywords | "add", "fix", "change" | "design", "migration", "from scratch" |
+| Uncertainty | None | "not sure", "how should I" |
+| Impact scope | Single file/module | Cross-cutting, multiple services |
+| Risk | Low (UI, text) | High (DB, auth, breaking API) |
+| Existing patterns | Clearly exist | None or unfamiliar stack |
 
-- **LOW** → Shallow Path (이 파일 내에서 완결)
-- **HIGH** → Deep Path (`deep/DEEP.md` 참조)
-- **애매하면** → Shallow로 시작, 에스컬레이션 조건 감시
+- **LOW** → Shallow Path (completed within this file)
+- **HIGH** → Deep Path (see `deep/DEEP.md`)
+- **Ambiguous** → Start Shallow, monitor escalation conditions
 
 ---
 
 ## Shallow Path (Low Complexity)
 
-빠른 Q&A로 모호함만 제거하고 바로 Plan Mode로 진입.
+Remove ambiguity via quick Q&A and enter Plan Mode immediately.
 
 ### Execution
 
-1. **Record**: 원본 요청 기록 + 모호한 부분 식별
-2. **Question**: `AskUserQuestion` (구체적 옵션, 2-3라운드)
-3. **Escalation Check**: 에스컬레이션 조건 확인 (아래 참조)
-4. **Summary**: Before/After 비교 (Goal, Scope, Constraints, Success Criteria)
-5. **Auto Plan**: `EnterPlanMode()` 즉시 호출
+1. **Record**: Log original request + identify ambiguous parts
+2. **Question**: `AskUserQuestion` (specific options, 2-3 rounds)
+3. **Escalation Check**: Check escalation conditions (see below)
+4. **Summary**: Before/After comparison (Goal, Scope, Constraints, Success Criteria)
+5. **Auto Plan**: Call `EnterPlanMode()` immediately
 
 ### Rules
-- 가정 금지 → 질문
-- TDD 가능 수준까지 구체화
-- 3라운드 내 해결 목표
+- No assumptions → Ask questions
+- Clarify to TDD-ready level
+- Target resolution within 3 rounds
 
 ### Escalation → Deep Path
 
-다음 중 하나라도 감지되면 Deep Path로 전환:
+Switch to Deep Path if any of these are detected:
 
-- 질문 3라운드 후에도 스코프 미확정
-- 사용자 답변에서 새로운 불확실성 계속 등장
-- 영향 범위가 초기 예상보다 확대 (단일 → 다중 모듈)
-- 리스크 지표 발견 (DB 스키마, 인증, 브레이킹 변경)
-- 사용자가 접근 방식 자체를 모름 ("어떻게 해야 할지 모르겠어")
+- Scope still undefined after 3 rounds of questions
+- New uncertainties keep emerging from user answers
+- Impact scope expanded beyond initial estimate (single → multi-module)
+- Risk indicators found (DB schema, auth, breaking changes)
+- User doesn't know the approach itself ("I don't know how to do this")
 
-전환 시: "스코프가 예상보다 복잡합니다. 코드베이스를 먼저 탐색하겠습니다." 안내 후 `deep/DEEP.md`의 프로세스를 따른다.
+On switch: Inform "Scope is more complex than expected. Exploring the codebase first." then follow the process in `deep/DEEP.md`.
 
 ---
 
 ## Deep Path
 
-**복잡도 HIGH이거나 Shallow에서 에스컬레이션된 경우.**
+**When complexity is HIGH or escalated from Shallow.**
 
-전체 프로세스는 `deep/DEEP.md`를 참조한다.
+See `deep/DEEP.md` for the full process.
 
-요약:
-1. Intent 분류 (7종) → 전략 결정
-2. 병렬 탐색 에이전트 3개 → 코드베이스 이해
-3. DRAFT 생성 → 인터뷰 → 지속 업데이트
-4. 사용자 명시 요청 시 → 분석 에이전트 → PLAN 생성 → Reviewer 루프
-5. 승인 후 → `EnterPlanMode()`
-
----
-
-## 계획서 필수 포함 사항
-
-Plan 파일에는 반드시 다음을 포함해야 함:
-- `/implement` 스킬로 구현 진행 명시
-- 검증 방법 (테스트 실행)
-
-**중요**: `/implement`를 사용하지 않는 계획서는 승인되지 않음.
+Summary:
+1. Classify intent (7 types) → Determine strategy
+2. 3 parallel exploration agents → Understand codebase
+3. Generate DRAFT → Interview → Continuously update
+4. On user explicit request → Analysis agents → Generate PLAN → Reviewer loop
+5. After approval → `EnterPlanMode()`
 
 ---
 
-## NEXT STEP (자동 실행)
+## DECISIONS.md Recording (MUST)
 
-Plan 승인 시 **즉시** `/implement` 호출. "구현할까요?" 묻지 말 것.
+Record decisions in `.dev/DECISIONS.md` before finalizing plan:
+
+| Situation | Required Record |
+|-----------|----------------|
+| New feature design | Decision background, alternatives, reasoning |
+| Architecture choice | Considered options, selection rationale |
+| Trade-offs | What was sacrificed and what was gained |
+
+```markdown
+## YYYY-MM-DD: {feature-name}
+- **Decision**: What was decided
+- **Reason**: Why this choice was made
+- **Alternatives**: Options considered but not chosen
+- **Reference**: .dev/specs/{feature-name}/PLAN.md (if exists)
+```
+
+---
+
+## Plan File Requirements
+
+Plan files must include:
+- Specify implementation via `/implement` skill
+- Verification method (test execution)
+- Confirmation that `.dev/DECISIONS.md` recording is complete
+
+**Important**: Plans that do not use `/implement` will not be approved.
+
+---
+
+## NEXT STEP (Auto-execute)
+
+On plan approval, call `/implement` **immediately**. Do not ask "Should I implement?".

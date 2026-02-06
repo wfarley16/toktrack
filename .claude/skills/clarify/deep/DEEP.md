@@ -1,6 +1,6 @@
 # Deep Path — Interview-Driven Planning
 
-복잡도 HIGH이거나 Shallow에서 에스컬레이션된 경우의 전체 프로세스.
+Full process for HIGH complexity or escalated from Shallow path.
 
 ---
 
@@ -22,7 +22,7 @@
 
 #### 1.2 Launch Parallel Exploration
 
-3개 에이전트를 **하나의 메시지에서 병렬** 실행:
+Run 3 agents **in parallel within a single message**:
 
 ```
 Task(subagent_type="Explore",
@@ -41,68 +41,68 @@ Task(subagent_type="Explore",
 Write(".dev/specs/{name}/DRAFT.md", initial_draft)
 ```
 
-`templates/DRAFT_TEMPLATE.md` 구조를 따른다.
+Follow the structure in `templates/DRAFT_TEMPLATE.md`.
 
 ### Step 1.5: Present Exploration Summary
 
-병렬 탐색 완료 후, 인터뷰 시작 전에 탐색 결과 요약을 사용자에게 제시:
+After parallel exploration completes, present summary to user before starting interview:
 
 ```
-"코드베이스 탐색 결과:
- - 구조: [주요 디렉토리 구조]
- - 관련 패턴: [발견된 기존 패턴 2-3개]
- - 내부 문서: [관련 ADR/컨벤션]
- - 프로젝트 명령어: lint/test/build
+"Codebase exploration results:
+ - Structure: [main directory structure]
+ - Related patterns: [2-3 existing patterns found]
+ - Internal docs: [related ADRs/conventions]
+ - Project commands: lint/test/build
 
-이 맥락이 맞는지 확인 후 진행하겠습니다."
+Please confirm this context is correct before proceeding."
 ```
 
 ### Step 2: Gather Requirements
 
-#### ASK (사용자만 아는 것)
-- **Boundaries**: 하면 안 되는 것
-- **Trade-offs**: 여러 유효한 선택지
-- **Success Criteria**: 완료 조건
+#### ASK (Only the user knows)
+- **Boundaries**: What must NOT be done
+- **Trade-offs**: Multiple valid options
+- **Success Criteria**: Completion conditions
 
-#### DISCOVER (에이전트가 탐색)
-- 파일 위치, 기존 패턴, 통합 지점, 프로젝트 명령어
+#### DISCOVER (Agent explores)
+- File locations, existing patterns, integration points, project commands
 
-#### PROPOSE (리서치 후 제안)
-- 탐색 결과 기반으로 제안 → 사용자는 승인/수정만
+#### PROPOSE (Suggest based on research)
+- Propose based on exploration results → User only approves/modifies
 
-> **핵심**: 질문 최소화, 리서치 기반 제안 최대화
+> **Key**: Minimize questions, maximize research-based proposals
 
 ### Step 3: Update Draft Continuously
 
-- 사용자 답변 → **User Decisions** 테이블 업데이트
-- 탐색 결과 → **Agent Findings** 업데이트
-- 해결된 항목 → **Open Questions**에서 제거
-- 방향 합의 시 → **Direction** 업데이트
+- User answer → Update **User Decisions** table
+- Exploration results → Update **Agent Findings**
+- Resolved items → Remove from **Open Questions**
+- Direction agreed → Update **Direction**
 
 ### Step 4: Plan Transition Check
 
-조건:
-- [ ] Critical Open Questions 전부 해결
-- [ ] User Decisions에 핵심 결정 기록
-- [ ] Success Criteria 합의
-- [ ] 사용자가 명시적으로 플랜 요청 ("플랜 만들어", "make it a plan" 등)
+Conditions:
+- [ ] All Critical Open Questions resolved
+- [ ] Key decisions recorded in User Decisions
+- [ ] Success Criteria agreed
+- [ ] User explicitly requests plan ("make the plan", "create plan", etc.)
 
-**사용자가 요청하지 않으면 플랜을 생성하지 않는다.**
+**Do not generate a plan unless the user requests it.**
 
 ---
 
-## Plan Generation Mode (명시적 요청 시)
+## Plan Generation Mode (On explicit request)
 
 ### Step 1: Validate Draft Completeness
 
-DRAFT에 다음이 있는지 확인:
-- [ ] What & Why 완성
-- [ ] Boundaries 명시
-- [ ] Success Criteria 정의
-- [ ] Critical Open Questions 비어있음
-- [ ] Agent Findings에 Patterns, Commands 존재
+Verify DRAFT contains:
+- [ ] What & Why complete
+- [ ] Boundaries specified
+- [ ] Success Criteria defined
+- [ ] Critical Open Questions empty
+- [ ] Patterns and Commands in Agent Findings
 
-미완성 시 → Interview Mode로 복귀.
+If incomplete → Return to Interview Mode.
 
 ### Step 2: Run Parallel Analysis Agents
 
@@ -118,25 +118,25 @@ Task(subagent_type="general-purpose",
              Boundaries: [DRAFT Boundaries]")
 ```
 
-외부 리서치 (migration, 새 라이브러리, 낯선 기술일 때만):
+External research (only for migration, new libraries, or unfamiliar tech):
 ```
 Task(subagent_type="general-purpose",
      prompt="Research official docs for [library/framework]: [specific question]")
 ```
 
-**Gap 분석 결과**: Must NOT Do에 추가
-**Tradeoff 분석 결과**: 리스크 태그 (LOW/MEDIUM/HIGH) 부여, HIGH는 사용자 승인 필요
+**Gap analysis results**: Add to Must NOT Do
+**Tradeoff analysis results**: Assign risk tags (LOW/MEDIUM/HIGH), HIGH requires user approval
 
 ### Step 3: Decision Summary Checkpoint
 
-플랜 생성 전 모든 결정사항 (사용자 결정 + 에이전트 자동 결정) 요약 제시:
+Present all decisions (user decisions + agent auto-decisions) before plan generation:
 
 ```
 AskUserQuestion(
-  question: "다음 결정 사항을 확인해주세요. 수정이 필요한 항목이 있나요?",
+  question: "Please review the following decisions. Any items need modification?",
   options: [
-    { label: "확인 완료", description: "모든 결정 사항이 맞습니다" },
-    { label: "수정 필요", description: "일부 항목을 변경하고 싶습니다" }
+    { label: "Confirmed", description: "All decisions are correct" },
+    { label: "Needs changes", description: "I want to modify some items" }
   ]
 )
 ```
@@ -147,9 +147,9 @@ AskUserQuestion(
 Write(".dev/specs/{name}/PLAN.md", plan_content)
 ```
 
-`templates/PLAN_TEMPLATE.md` 구조를 따른다.
+Follow the structure in `templates/PLAN_TEMPLATE.md`.
 
-#### DRAFT → PLAN 매핑
+#### DRAFT → PLAN Mapping
 
 | DRAFT Section | PLAN Section |
 |---------------|--------------|
@@ -172,24 +172,31 @@ Task(subagent_type="feature-dev:code-reviewer",
 
 ### Step 6: Handle Reviewer Response
 
-**REJECT (Cosmetic)** — 포맷, 명확성, 필드 누락:
-→ 자동 수정 → 재심사 → OKAY까지 반복
+**REJECT (Cosmetic)** — Format, clarity, missing fields:
+→ Auto-fix → Re-review → Repeat until OKAY
 
-**REJECT (Semantic)** — 요구사항, 스코프, 로직 변경:
-→ 사용자에게 제시 → 사용자 선택에 따라 수정 → 재심사
+**REJECT (Semantic)** — Requirements, scope, logic changes:
+→ Present to user → Modify per user choice → Re-review
 
-Semantic 판단 기준 — 다음이 변경되면 Semantic:
+Semantic criteria — The following changes are Semantic:
 - Work Objectives (scope, deliverables, definition of done)
 - TODO steps or acceptance criteria
 - Risk level or rollback strategy
 - Must NOT Do items
 
-그 외 (문구, 포맷, 필드 완성도) → Cosmetic.
+Everything else (wording, format, field completeness) → Cosmetic.
 
 **OKAY**:
-1. DRAFT 삭제: `Bash("rm .dev/specs/{name}/DRAFT.md")`
-2. 사용자에게 플랜 준비 완료 안내
-3. `EnterPlanMode()` 호출
+1. ~~Delete DRAFT~~ → **Preserve DRAFT** (for compounding)
+2. **Append summary to DECISIONS.md**:
+   ```markdown
+   ## {date}: {feature-name}
+   - **Decision**: {1-3 key items from User Decisions}
+   - **Reason**: {Key point from Why}
+   - **Reference**: .dev/specs/{name}/PLAN.md
+   ```
+3. Inform user that plan is ready
+4. Call `EnterPlanMode()`
 
 ---
 
@@ -207,5 +214,5 @@ Semantic 판단 기준 — 다음이 변경되면 Semantic:
 
 | Type | Path | When |
 |------|------|------|
-| Draft | `.dev/specs/{name}/DRAFT.md` | Interview 중 |
-| Plan | `.dev/specs/{name}/PLAN.md` | Plan generation 후 |
+| Draft | `.dev/specs/{name}/DRAFT.md` | During interview |
+| Plan | `.dev/specs/{name}/PLAN.md` | After plan generation |
