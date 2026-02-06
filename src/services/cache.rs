@@ -189,16 +189,14 @@ impl DailySummaryCacheService {
             }
         };
 
-        if cache.version != CACHE_VERSION {
-            let _ = file.unlock();
-            return (
-                Vec::new(),
-                Some(CacheWarning::VersionMismatch(format!(
-                    "Cache version {} != {}, rebuilding",
-                    cache.version, CACHE_VERSION
-                ))),
-            );
-        }
+        let warning = if cache.version != CACHE_VERSION {
+            Some(CacheWarning::VersionMismatch(format!(
+                "Cache version {} != {}, recomputing available dates",
+                cache.version, CACHE_VERSION
+            )))
+        } else {
+            None
+        };
 
         let _ = file.unlock();
 
@@ -213,7 +211,7 @@ impl DailySummaryCacheService {
             })
             .collect();
 
-        (summaries, None)
+        (summaries, warning)
     }
 
     /// Save using atomic write (temp file + rename) with exclusive lock.
@@ -751,32 +749,46 @@ mod tests {
         assert_eq!(result[0].total_input_tokens, 500);
     }
 
-    // Test 14: Explicit version mismatch (future version) triggers rebuild
+    // Test 14: Version mismatch preserves cached dates without entries
     #[test]
-    fn test_explicit_version_mismatch_triggers_rebuild() {
+    fn test_version_mismatch_preserves_old_data_without_entries() {
         let (service, _temp) = create_test_service();
+        let old_date = Local::now().date_naive() - chrono::Duration::days(30);
         let yesterday = Local::now().date_naive() - chrono::Duration::days(1);
 
-        // Write cache with a mismatched version (e.g., version 999)
+        // Old cache with two dates: old_date (no entries) + yesterday (has entries)
         let json = serde_json::json!({
             "cli": "claude-code",
-            "version": 999,
+            "version": 0,
             "updated_at": chrono::Utc::now().timestamp(),
-            "summaries": [{
-                "date": yesterday.to_string(),
-                "total_input_tokens": 888,
-                "total_output_tokens": 444,
-                "total_cache_read_tokens": 0,
-                "total_cache_creation_tokens": 0,
-                "total_thinking_tokens": 0,
-                "total_cost_usd": 8.88,
-                "models": {}
-            }]
+            "summaries": [
+                {
+                    "date": old_date.to_string(),
+                    "total_input_tokens": 500,
+                    "total_output_tokens": 250,
+                    "total_cache_read_tokens": 0,
+                    "total_cache_creation_tokens": 0,
+                    "total_thinking_tokens": 0,
+                    "total_cost_usd": 5.00,
+                    "models": {}
+                },
+                {
+                    "date": yesterday.to_string(),
+                    "total_input_tokens": 888,
+                    "total_output_tokens": 444,
+                    "total_cache_read_tokens": 0,
+                    "total_cache_creation_tokens": 0,
+                    "total_thinking_tokens": 0,
+                    "total_cost_usd": 8.88,
+                    "models": {}
+                }
+            ]
         });
         let cache_path = service.cache_path("claude-code");
         fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
         fs::write(&cache_path, json.to_string()).unwrap();
 
+        // Only provide entries for yesterday (old_date JSONL is gone)
         let entries = vec![make_entry(
             yesterday.year(),
             yesterday.month(),
@@ -790,7 +802,19 @@ mod tests {
         let (result, warning) = service.load_or_compute("claude-code", &entries).unwrap();
 
         assert!(matches!(warning, Some(CacheWarning::VersionMismatch(_))));
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].total_input_tokens, 200); // Recomputed, not 888
+        assert_eq!(result.len(), 2);
+
+        // old_date: preserved from cache (no entries to recompute)
+        let old = result.iter().find(|s| s.date == old_date).unwrap();
+        assert_eq!(old.total_input_tokens, 500);
+
+        // yesterday: recomputed from entries
+        let recent = result.iter().find(|s| s.date == yesterday).unwrap();
+        assert_eq!(recent.total_input_tokens, 200);
+
+        // Saved cache should now have CACHE_VERSION
+        let saved: DailySummaryCache =
+            serde_json::from_str(&fs::read_to_string(&cache_path).unwrap()).unwrap();
+        assert_eq!(saved.version, CACHE_VERSION);
     }
 }
