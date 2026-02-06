@@ -59,7 +59,7 @@ impl Aggregator {
         let mut daily_map: HashMap<chrono::NaiveDate, DailySummary> = HashMap::new();
 
         for entry in entries {
-            let date = entry.timestamp.date_naive();
+            let date = entry.local_date();
             let cost = entry.cost_usd.unwrap_or(0.0);
             let model_name = normalize_model_name(entry.model.as_deref().unwrap_or("unknown"));
 
@@ -261,7 +261,7 @@ impl Aggregator {
             summary.total_cost_usd += entry.cost_usd.unwrap_or(0.0);
             summary.entry_count = summary.entry_count.saturating_add(1);
 
-            dates.insert(entry.timestamp.date_naive());
+            dates.insert(entry.local_date());
         }
 
         summary.day_count = dates.len() as u64;
@@ -1224,6 +1224,119 @@ mod tests {
             source: source.map(String::from),
             provider: None,
         }
+    }
+
+    // ========== Timezone boundary tests ==========
+
+    #[test]
+    fn test_daily_groups_by_local_date_not_utc() {
+        // Simulate entries around midnight UTC.
+        // In UTC+N (N>0) timezones, late UTC timestamps map to the next local day.
+        // e.g. 2024-02-05 23:00 UTC = 2024-02-06 08:00 KST
+        let late_utc = Utc.with_ymd_and_hms(2024, 2, 5, 23, 0, 0).unwrap();
+        let early_utc = Utc.with_ymd_and_hms(2024, 2, 6, 1, 0, 0).unwrap();
+
+        let entry_late = UsageEntry {
+            timestamp: late_utc,
+            model: Some("claude".into()),
+            input_tokens: 100,
+            output_tokens: 50,
+            cache_read_tokens: 0,
+            cache_creation_tokens: 0,
+            thinking_tokens: 0,
+            cost_usd: Some(0.01),
+            message_id: None,
+            request_id: None,
+            source: None,
+            provider: None,
+        };
+        let entry_early = UsageEntry {
+            timestamp: early_utc,
+            model: Some("claude".into()),
+            input_tokens: 200,
+            output_tokens: 100,
+            cache_read_tokens: 0,
+            cache_creation_tokens: 0,
+            thinking_tokens: 0,
+            cost_usd: Some(0.02),
+            message_id: None,
+            request_id: None,
+            source: None,
+            provider: None,
+        };
+
+        let result = Aggregator::daily(&[entry_late.clone(), entry_early.clone()]);
+
+        // Both entries should be grouped by their LOCAL date, not UTC date.
+        // Verify grouping uses local_date()
+        let expected_date_late = entry_late.local_date();
+        let expected_date_early = entry_early.local_date();
+
+        if expected_date_late == expected_date_early {
+            // Same local date → single summary
+            assert_eq!(result.len(), 1);
+            assert_eq!(result[0].date, expected_date_late);
+            assert_eq!(result[0].total_input_tokens, 300); // 100 + 200
+        } else {
+            // Different local dates → two summaries
+            assert_eq!(result.len(), 2);
+            let late_summary = result
+                .iter()
+                .find(|s| s.date == expected_date_late)
+                .unwrap();
+            let early_summary = result
+                .iter()
+                .find(|s| s.date == expected_date_early)
+                .unwrap();
+            assert_eq!(late_summary.total_input_tokens, 100);
+            assert_eq!(early_summary.total_input_tokens, 200);
+        }
+    }
+
+    #[test]
+    fn test_total_counts_days_by_local_date() {
+        // Two entries that are on different UTC dates but same local date (for UTC+ timezones)
+        let ts1 = Utc.with_ymd_and_hms(2024, 2, 5, 22, 0, 0).unwrap();
+        let ts2 = Utc.with_ymd_and_hms(2024, 2, 6, 2, 0, 0).unwrap();
+
+        let entries = vec![
+            UsageEntry {
+                timestamp: ts1,
+                model: Some("claude".into()),
+                input_tokens: 100,
+                output_tokens: 50,
+                cache_read_tokens: 0,
+                cache_creation_tokens: 0,
+                thinking_tokens: 0,
+                cost_usd: Some(0.01),
+                message_id: None,
+                request_id: None,
+                source: None,
+                provider: None,
+            },
+            UsageEntry {
+                timestamp: ts2,
+                model: Some("claude".into()),
+                input_tokens: 200,
+                output_tokens: 100,
+                cache_read_tokens: 0,
+                cache_creation_tokens: 0,
+                thinking_tokens: 0,
+                cost_usd: Some(0.02),
+                message_id: None,
+                request_id: None,
+                source: None,
+                provider: None,
+            },
+        ];
+
+        let result = Aggregator::total(&entries);
+
+        // day_count should reflect local dates, not UTC dates
+        let local_date1 = entries[0].local_date();
+        let local_date2 = entries[1].local_date();
+        let expected_days = if local_date1 == local_date2 { 1 } else { 2 };
+        assert_eq!(result.day_count, expected_days);
     }
 
     #[test]

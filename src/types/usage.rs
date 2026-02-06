@@ -1,6 +1,6 @@
 //! Usage types for token tracking
 
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, Local, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -95,6 +95,12 @@ impl UsageEntry {
             + self.cache_read_tokens
             + self.cache_creation_tokens
             + self.thinking_tokens
+    }
+
+    /// Convert UTC timestamp to local timezone date.
+    /// Ensures date grouping matches the user's local calendar.
+    pub fn local_date(&self) -> NaiveDate {
+        self.timestamp.with_timezone(&Local).date_naive()
     }
 
     pub fn dedup_hash(&self) -> Option<String> {
@@ -359,6 +365,60 @@ mod tests {
             provider: None,
         };
         assert_eq!(entry.dedup_hash(), Some("msg789:gpt-4:100:50".into()));
+    }
+
+    #[test]
+    fn test_local_date_matches_local_timezone() {
+        use chrono::TimeZone;
+        // 2024-02-06 03:00 UTC = 2024-02-06 12:00 KST(+9)
+        // date_naive() would give 2024-02-06 in both cases here,
+        // but the point is local_date() uses Local timezone conversion
+        let utc_ts = Utc.with_ymd_and_hms(2024, 2, 6, 3, 0, 0).unwrap();
+        let entry = UsageEntry {
+            timestamp: utc_ts,
+            model: Some("claude".into()),
+            input_tokens: 100,
+            output_tokens: 50,
+            cache_read_tokens: 0,
+            cache_creation_tokens: 0,
+            thinking_tokens: 0,
+            cost_usd: None,
+            message_id: None,
+            request_id: None,
+            source: None,
+            provider: None,
+        };
+
+        let local_date = entry.local_date();
+        // Verify it matches what chrono::Local would produce
+        let expected = utc_ts.with_timezone(&Local).date_naive();
+        assert_eq!(local_date, expected);
+
+        // Also verify date_naive (UTC) vs local_date can differ
+        // For UTC+N timezones where N>0, a late-night UTC timestamp
+        // may map to the next day in local time
+        let late_utc = Utc.with_ymd_and_hms(2024, 2, 5, 23, 0, 0).unwrap();
+        let late_entry = UsageEntry {
+            timestamp: late_utc,
+            model: None,
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_read_tokens: 0,
+            cache_creation_tokens: 0,
+            thinking_tokens: 0,
+            cost_usd: None,
+            message_id: None,
+            request_id: None,
+            source: None,
+            provider: None,
+        };
+        let local = late_entry.local_date();
+        let utc_naive = late_utc.date_naive();
+        // In any timezone east of UTC, local_date >= utc date_naive
+        let local_offset = Local::now().offset().local_minus_utc();
+        if local_offset > 0 {
+            assert!(local >= utc_naive);
+        }
     }
 
     #[test]

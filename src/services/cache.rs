@@ -81,8 +81,7 @@ impl DailySummaryCacheService {
 
         let (cached, warning) = self.load_past_summaries(cli, today);
 
-        let entry_dates: HashSet<NaiveDate> =
-            entries.iter().map(|e| e.timestamp.date_naive()).collect();
+        let entry_dates: HashSet<NaiveDate> = entries.iter().map(|e| e.local_date()).collect();
 
         // Recompute: today (always), uncached dates, and cached dates with new entries.
         // Since we iterate entry_dates, any date with entries is recomputed.
@@ -90,7 +89,7 @@ impl DailySummaryCacheService {
 
         let entries_to_compute: Vec<&UsageEntry> = entries
             .iter()
-            .filter(|e| dates_to_compute.contains(&e.timestamp.date_naive()))
+            .filter(|e| dates_to_compute.contains(&e.local_date()))
             .collect();
 
         let new_summaries = if entries_to_compute.is_empty() {
