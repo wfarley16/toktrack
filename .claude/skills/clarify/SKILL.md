@@ -59,15 +59,16 @@ Measure complexity internally upon receiving request (do not expose to user).
 
 ## Shallow Path (Low Complexity)
 
-Remove ambiguity via quick Q&A and enter Plan Mode immediately.
+Remove ambiguity via quick Q&A, generate minimal specs, and enter Plan Mode.
 
 ### Execution
 
 1. **Record**: Log original request + identify ambiguous parts
 2. **Question**: `AskUserQuestion` (specific options, 2-3 rounds)
 3. **Escalation Check**: Check escalation conditions (see below)
-4. **Summary**: Before/After comparison (Goal, Scope, Constraints, Success Criteria)
-5. **Auto Plan**: Call `EnterPlanMode()` immediately
+4. **Create DRAFT**: Write `.dev/specs/{name}/DRAFT.md` (minimal version — What, Why, Scope, Success Criteria)
+5. **Summary + Create PLAN**: Before/After comparison → Write `.dev/specs/{name}/PLAN.md`
+6. **Auto Plan**: Call `EnterPlanMode()` — plan file은 반드시 `.dev/specs/{name}/PLAN.md`에 작성
 
 ### Rules
 - No assumptions → Ask questions
@@ -129,6 +130,9 @@ Plan files must include:
 - Specify implementation via `/implement` skill
 - Verification method (test execution)
 - Confirmation that `.dev/DECISIONS.md` recording is complete
+
+**Plan File Location**: Plan Mode 진입 시 plan_file 경로를 `.dev/specs/{name}/PLAN.md`로 지정.
+시스템 Plan Mode의 `.claude/plans/` 대신 `.dev/specs/`를 사용.
 
 **Important**: Plans that do not use `/implement` will not be approved.
 

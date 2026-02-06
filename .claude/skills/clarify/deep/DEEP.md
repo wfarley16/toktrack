@@ -196,7 +196,7 @@ Everything else (wording, format, field completeness) → Cosmetic.
    - **Reference**: .dev/specs/{name}/PLAN.md
    ```
 3. Inform user that plan is ready
-4. Call `EnterPlanMode()`
+4. Call `EnterPlanMode()` — plan file은 반드시 `.dev/specs/{name}/PLAN.md`에 작성
 
 ---
 
