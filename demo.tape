@@ -17,25 +17,31 @@ Sleep 1500ms
 Type "3"
 Sleep 200ms
 Type "k"
-Sleep 200ms 
+Sleep 200ms
 Type "k"
-Sleep 200ms 
+Sleep 200ms
 Type "k"
-Sleep 200ms 
+Sleep 200ms
 Type "k"
-Sleep 200ms 
+Sleep 200ms
 Type "k"
-Sleep 200ms 
+Sleep 200ms
 Type "k"
-Sleep 200ms 
+Sleep 200ms
 Type "k"
-Sleep 200ms 
+Sleep 200ms
 Type "k"
-Sleep 200ms 
+Sleep 200ms
 Type "k"
-Sleep 200ms 
+Sleep 200ms
 Type "k"
-Sleep 1500ms 
+Sleep 1500ms
+
+# Model breakdown popup (Enter 키)
+Enter
+Sleep 2000ms
+Escape
+Sleep 500ms
 
 # Weekly 뷰
 Type "w"

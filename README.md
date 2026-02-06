@@ -118,6 +118,7 @@ toktrack stats --json
 | `1-4` | Switch tabs directly |
 | `Tab` / `Shift+Tab` | Next / Previous tab |
 | `j` / `k` or `↑` / `↓` | Scroll up / down |
+| `Enter` | Open model breakdown popup (Daily tab) |
 | `d` / `w` / `m` | Daily / Weekly / Monthly view (Daily tab) |
 | `?` | Toggle help |
 | `q` | Quit |
