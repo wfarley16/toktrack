@@ -47,6 +47,10 @@ impl DataLoaderService {
 
         if has_cache {
             if let Ok(result) = self.load_warm_path() {
+                // Version mismatch → cold path for full reparse
+                if matches!(result.cache_warning, Some(CacheWarning::VersionMismatch(_))) {
+                    return self.load_cold_path();
+                }
                 if !result.summaries.is_empty() {
                     return Ok(result);
                 }
