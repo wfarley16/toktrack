@@ -55,3 +55,11 @@
 - **결정**: 팝업 통일 스타일 - 선택색상 (Quit=LightRed, Update=LightGreen), 2줄 힌트
 - **이유**: 일관된 UX, 힌트 가독성 향상, 액션 특성에 맞는 컬러
 
+## 2026-02-06: spending-spike-alerts (#46)
+- **결정**: Threshold alert 대신 Visual Spike Detection (Smart Viewer) 방향 채택
+- **이유**: (1) one-shot 뷰어에서 alert 팝업은 의미 약함 — 진짜 alert는 daemon 필요 (2) LiteLLM 추정 비용에 threshold 알림 → 신뢰 문제 (3) config.toml 서브시스템을 alert 하나로 도입하기엔 과투자
+- **대안**: Passive Advisor (config.toml + TUI 경고), Active Monitor (config + 시스템 알림) — 둘 다 현 단계에선 과함
+- **구현 방향**: Daily 뷰 spike 색상 강조 (2x+→빨강, 1.5x+→노랑), heatmap 강조, Stats에 spike 통계 추가
+- **재검토 조건**: config 시스템이 다른 이유로 도입되는 시점에 Passive Advisor 재검토
+- **참조**: https://github.com/mag123c/toktrack/issues/46
+

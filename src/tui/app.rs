@@ -528,6 +528,7 @@ impl Widget for &App {
                             self.active_scroll(),
                             self.daily_view_mode,
                             self.theme,
+                            data.stats_data.daily_avg_cost,
                         )
                         .with_tab(self.current_tab)
                         .with_selected_index(self.active_selected());

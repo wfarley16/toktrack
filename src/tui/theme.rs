@@ -87,6 +87,22 @@ impl Theme {
         }
     }
 
+    /// Spike warning color (elevated spending: 1.5x~2x daily avg)
+    pub fn spike_warn(self) -> Color {
+        match self {
+            Self::Dark => Color::Yellow,
+            Self::Light => Color::Indexed(130), // dark orange/yellow (ANSI 256)
+        }
+    }
+
+    /// Spike high color (spike spending: >= 2x daily avg)
+    pub fn spike_high(self) -> Color {
+        match self {
+            Self::Dark => Color::LightRed,
+            Self::Light => Color::Indexed(124), // dark red (ANSI 256)
+        }
+    }
+
     /// Stats accent color (Daily Average card)
     pub fn stat_blue(self) -> Color {
         match self {
@@ -140,6 +156,8 @@ mod tests {
         assert_eq!(t.error(), Color::Red);
         assert_eq!(t.stat_blue(), Color::Blue);
         assert_eq!(t.stat_warm(), Color::LightRed);
+        assert_eq!(t.spike_warn(), Color::Yellow);
+        assert_eq!(t.spike_high(), Color::LightRed);
     }
 
     #[test]
@@ -154,6 +172,8 @@ mod tests {
         assert_eq!(t.error(), Color::Indexed(124));
         assert_eq!(t.stat_blue(), Color::Indexed(25));
         assert_eq!(t.stat_warm(), Color::Red);
+        assert_eq!(t.spike_warn(), Color::Indexed(130));
+        assert_eq!(t.spike_high(), Color::Indexed(124));
     }
 
     #[test]
