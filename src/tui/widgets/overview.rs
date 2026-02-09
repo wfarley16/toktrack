@@ -103,15 +103,13 @@ impl Widget for Overview<'_> {
         constraints.push(Constraint::Length(1));
 
         let heatmap_idx = constraints.len(); // 8
-        constraints.push(Constraint::Length(10));
+        constraints.push(Constraint::Fill(1));
 
         let sep_idx = constraints.len(); // 9
         constraints.push(Constraint::Length(1));
 
         let keybindings_idx = constraints.len(); // 10
         constraints.push(Constraint::Length(1));
-
-        constraints.push(Constraint::Min(0)); // Remaining
 
         let chunks = Layout::vertical(constraints).split(centered_area);
 
