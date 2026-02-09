@@ -34,14 +34,23 @@ struct CodexPayload {
 #[derive(Deserialize)]
 struct CodexInfo {
     total_token_usage: Option<CodexTokenUsage>,
+    #[serde(default)]
+    last_token_usage: Option<CodexTokenUsage>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 struct CodexTokenUsage {
     input_tokens: u64,
     output_tokens: u64,
     #[serde(default)]
     cached_input_tokens: u64,
+}
+
+/// Raw token data extracted from a token_count event
+struct TokenCountData {
+    timestamp: DateTime<Utc>,
+    total: CodexTokenUsage,
+    last: Option<CodexTokenUsage>,
 }
 
 /// Parser for Codex CLI usage data
@@ -69,13 +78,8 @@ impl CodexParser {
         Self { data_dir }
     }
 
-    /// Parse a single JSONL line and return optional UsageEntry with model info
-    fn parse_line(
-        &self,
-        line: &mut [u8],
-        current_model: &Option<String>,
-        session_id: &Option<String>,
-    ) -> ParseResult {
+    /// Parse a single JSONL line
+    fn parse_line(&self, line: &mut [u8]) -> ParseResult {
         if line.is_empty() {
             return ParseResult::Skip;
         }
@@ -90,7 +94,6 @@ impl CodexParser {
             None => return ParseResult::Skip,
         };
 
-        // Handle turn_context lines - extract model info from payload.model
         if data.line_type == "turn_context" {
             if let Some(ref model) = payload.model {
                 return ParseResult::Model(model.clone());
@@ -98,7 +101,6 @@ impl CodexParser {
             return ParseResult::Skip;
         }
 
-        // Handle session_meta lines - extract session id
         if data.line_type == "session_meta" {
             if let Some(ref id) = payload.id {
                 return ParseResult::SessionId(id.clone());
@@ -106,12 +108,10 @@ impl CodexParser {
             return ParseResult::Skip;
         }
 
-        // Only process event_msg lines with token_count payload
         if data.line_type != "event_msg" {
             return ParseResult::Skip;
         }
 
-        // Check for token_count type
         let payload_type = match &payload.payload_type {
             Some(t) => t,
             None => return ParseResult::Skip,
@@ -126,8 +126,8 @@ impl CodexParser {
             None => return ParseResult::Skip,
         };
 
-        let usage = match &info.total_token_usage {
-            Some(u) => u,
+        let total = match &info.total_token_usage {
+            Some(u) => u.clone(),
             None => return ParseResult::Skip,
         };
 
@@ -142,22 +142,11 @@ impl CodexParser {
             }
         };
 
-        let entry = UsageEntry {
+        ParseResult::TokenCount(TokenCountData {
             timestamp,
-            model: current_model.clone(),
-            input_tokens: usage.input_tokens,
-            output_tokens: usage.output_tokens,
-            cache_read_tokens: usage.cached_input_tokens,
-            cache_creation_tokens: 0,
-            thinking_tokens: 0,
-            cost_usd: None,
-            message_id: session_id.clone(),
-            request_id: None,
-            source: Some("codex".into()),
-            provider: None,
-        };
-
-        ParseResult::Entry(entry)
+            total,
+            last: info.last_token_usage.clone(),
+        })
     }
 }
 
@@ -166,7 +155,7 @@ enum ParseResult {
     Skip,
     Model(String),
     SessionId(String),
-    Entry(UsageEntry),
+    TokenCount(TokenCountData),
 }
 
 impl Default for CodexParser {
@@ -191,9 +180,14 @@ impl CLIParser for CodexParser {
     fn parse_file(&self, path: &Path) -> Result<Vec<UsageEntry>> {
         let file = File::open(path).map_err(ToktrackError::Io)?;
         let reader = BufReader::new(file);
-        let mut last_entry: Option<UsageEntry> = None;
+        let mut entries: Vec<UsageEntry> = Vec::new();
         let mut current_model: Option<String> = None;
         let mut session_id: Option<String> = None;
+        let mut prev_totals = CodexTokenUsage {
+            input_tokens: 0,
+            output_tokens: 0,
+            cached_input_tokens: 0,
+        };
 
         for line_result in reader.lines() {
             let line = match line_result {
@@ -206,17 +200,62 @@ impl CLIParser for CodexParser {
             }
 
             let mut line_bytes = line.into_bytes();
-            match self.parse_line(&mut line_bytes, &current_model, &session_id) {
+            match self.parse_line(&mut line_bytes) {
                 ParseResult::Skip => {}
                 ParseResult::Model(m) => current_model = Some(m),
                 ParseResult::SessionId(id) => session_id = Some(id),
-                // total_token_usage is cumulative; keep only the last
-                // token_count event which holds the session total.
-                ParseResult::Entry(entry) => last_entry = Some(entry),
+                ParseResult::TokenCount(data) => {
+                    // Compute delta: prefer last_token_usage, fallback to diff
+                    let (delta_input, delta_output, delta_cached) =
+                        if let Some(ref last) = data.last {
+                            (
+                                last.input_tokens,
+                                last.output_tokens,
+                                last.cached_input_tokens,
+                            )
+                        } else {
+                            (
+                                data.total
+                                    .input_tokens
+                                    .saturating_sub(prev_totals.input_tokens),
+                                data.total
+                                    .output_tokens
+                                    .saturating_sub(prev_totals.output_tokens),
+                                data.total
+                                    .cached_input_tokens
+                                    .saturating_sub(prev_totals.cached_input_tokens),
+                            )
+                        };
+
+                    prev_totals = data.total;
+
+                    // Skip zero-delta events
+                    if delta_input == 0 && delta_output == 0 && delta_cached == 0 {
+                        continue;
+                    }
+
+                    // Normalize: input_tokens = non-cached only (Claude convention)
+                    let non_cached_input = delta_input.saturating_sub(delta_cached);
+
+                    entries.push(UsageEntry {
+                        timestamp: data.timestamp,
+                        model: current_model.clone(),
+                        input_tokens: non_cached_input,
+                        output_tokens: delta_output,
+                        cache_read_tokens: delta_cached,
+                        cache_creation_tokens: 0,
+                        thinking_tokens: 0,
+                        cost_usd: None,
+                        message_id: session_id.clone(),
+                        request_id: None,
+                        source: Some("codex".into()),
+                        provider: None,
+                    });
+                }
             }
         }
 
-        Ok(last_entry.into_iter().collect())
+        Ok(entries)
     }
 }
 
@@ -234,35 +273,76 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_codex_jsonl_uses_last_cumulative_total() {
+    fn test_parse_delta_sum_produces_per_turn_entries() {
         let parser = CodexParser::with_data_dir(PathBuf::from("tests/fixtures/codex"));
         let entries = parser
             .parse_file(&fixture_path("sample-session.jsonl"))
             .unwrap();
 
-        // total_token_usage is cumulative; only the last token_count
-        // event should be emitted per session file.
-        assert_eq!(entries.len(), 1);
+        // Two token_count events → two entries (delta per turn)
+        assert_eq!(entries.len(), 2);
     }
 
     #[test]
-    fn test_parse_last_entry_has_final_totals() {
+    fn test_input_tokens_normalized_for_codex() {
         let parser = CodexParser::with_data_dir(PathBuf::from("tests/fixtures/codex"));
         let entries = parser
             .parse_file(&fixture_path("sample-session.jsonl"))
             .unwrap();
 
-        // The single entry should carry the last cumulative totals
-        // and the model active at that point.
-        let entry = &entries[0];
-        assert_eq!(entry.model, Some("gpt-4.1".to_string()));
-        assert_eq!(entry.input_tokens, 500);
-        assert_eq!(entry.output_tokens, 200);
-        assert_eq!(entry.cache_read_tokens, 100);
-        assert_eq!(entry.cache_creation_tokens, 0);
-        assert_eq!(entry.thinking_tokens, 0);
-        assert_eq!(entry.source, Some("codex".into()));
-        assert_eq!(entry.message_id, Some("session-001".to_string()));
+        // Entry 1: last_token_usage={input:150, output:75, cached:25}
+        //   normalized input = 150 - 25 = 125
+        let e1 = &entries[0];
+        assert_eq!(e1.model, Some("o4-mini".to_string()));
+        assert_eq!(e1.input_tokens, 125); // 150 - 25
+        assert_eq!(e1.output_tokens, 75);
+        assert_eq!(e1.cache_read_tokens, 25);
+
+        // Entry 2: last_token_usage={input:350, output:125, cached:75}
+        //   normalized input = 350 - 75 = 275
+        let e2 = &entries[1];
+        assert_eq!(e2.model, Some("gpt-4.1".to_string()));
+        assert_eq!(e2.input_tokens, 275); // 350 - 75
+        assert_eq!(e2.output_tokens, 125);
+        assert_eq!(e2.cache_read_tokens, 75);
+    }
+
+    #[test]
+    fn test_delta_sum_matches_expected() {
+        let parser = CodexParser::with_data_dir(PathBuf::from("tests/fixtures/codex"));
+        let entries = parser
+            .parse_file(&fixture_path("multi-turn-session.jsonl"))
+            .unwrap();
+
+        // Turn 1: last={100,50,20} → input=80, output=50, cached=20
+        // Turn 2: last={200,70,40} → input=160, output=70, cached=40
+        // Turn 3: no last → diff={0,0,0} → SKIP
+        // Turn 4: last={200,80,40} → input=160, output=80, cached=40
+        assert_eq!(entries.len(), 3);
+
+        assert_eq!(entries[0].input_tokens, 80);
+        assert_eq!(entries[0].output_tokens, 50);
+        assert_eq!(entries[0].cache_read_tokens, 20);
+
+        assert_eq!(entries[1].input_tokens, 160);
+        assert_eq!(entries[1].output_tokens, 70);
+        assert_eq!(entries[1].cache_read_tokens, 40);
+
+        assert_eq!(entries[2].input_tokens, 160);
+        assert_eq!(entries[2].output_tokens, 80);
+        assert_eq!(entries[2].cache_read_tokens, 40);
+    }
+
+    #[test]
+    fn test_zero_delta_skipped() {
+        let parser = CodexParser::with_data_dir(PathBuf::from("tests/fixtures/codex"));
+        let entries = parser
+            .parse_file(&fixture_path("multi-turn-session.jsonl"))
+            .unwrap();
+
+        // Turn 3 has zero delta (no last_token_usage, totals unchanged) → skipped
+        // So 3 entries, not 4
+        assert_eq!(entries.len(), 3);
     }
 
     #[test]
@@ -272,9 +352,21 @@ mod tests {
             .parse_file(&fixture_path("sample-session.jsonl"))
             .unwrap();
 
-        // Invalid JSON line and other event types should be skipped;
-        // only one entry (last cumulative total) should remain.
-        assert_eq!(entries.len(), 1);
+        // Invalid JSON line, null info, and non-token events are skipped
+        assert_eq!(entries.len(), 2);
+    }
+
+    #[test]
+    fn test_session_id_and_source() {
+        let parser = CodexParser::with_data_dir(PathBuf::from("tests/fixtures/codex"));
+        let entries = parser
+            .parse_file(&fixture_path("sample-session.jsonl"))
+            .unwrap();
+
+        for entry in &entries {
+            assert_eq!(entry.source, Some("codex".into()));
+            assert_eq!(entry.message_id, Some("session-001".to_string()));
+        }
     }
 
     #[test]

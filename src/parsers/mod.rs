@@ -218,7 +218,7 @@ mod tests {
     fn test_collect_files() {
         let parser = ClaudeCodeParser::with_data_dir(PathBuf::from("tests/fixtures"));
         let files = parser.collect_files();
-        // claude-sample.jsonl, empty.jsonl, multi/file1.jsonl, multi/file2.jsonl, codex/sample-session.jsonl
-        assert_eq!(files.len(), 5);
+        // claude-sample.jsonl, empty.jsonl, multi/file1.jsonl, multi/file2.jsonl, codex/sample-session.jsonl, codex/multi-turn-session.jsonl
+        assert_eq!(files.len(), 6);
     }
 }

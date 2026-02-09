@@ -225,18 +225,38 @@ impl PricingService {
             + (entry.output_tokens as f64 * output_cost)
     }
 
-    /// Get pricing for a model (tries exact match first, then normalized)
+    /// Get pricing for a model (exact → normalized → fuzzy substring)
     pub fn get_pricing(&self, model: &str) -> Option<&ModelPricing> {
-        // Try exact match first
+        // 1. Exact match
         if let Some(pricing) = self.cache.models.get(model) {
             return Some(pricing);
         }
-        // Try normalized name
+
+        // 2. Normalized match
         let normalized = super::normalize_model_name(model);
         if normalized != model {
-            return self.cache.models.get(&normalized);
+            if let Some(pricing) = self.cache.models.get(&normalized) {
+                return Some(pricing);
+            }
         }
-        None
+
+        // 3. Substring fuzzy match (longest key wins)
+        let lower = normalized.to_lowercase();
+        let mut best: Option<(&str, &ModelPricing)> = None;
+        for (key, pricing) in &self.cache.models {
+            let key_lower = key.to_lowercase();
+            // Skip provider-prefixed keys (azure/, openrouter/, etc.)
+            if key_lower.contains('/') {
+                continue;
+            }
+            if !key_lower.is_empty()
+                && lower.contains(&key_lower)
+                && best.is_none_or(|(k, _)| key.len() > k.len())
+            {
+                best = Some((key, pricing));
+            }
+        }
+        best.map(|(_, p)| p)
     }
 
     /// Force refresh pricing data
@@ -482,6 +502,102 @@ mod tests {
         let pricing = service.get_pricing("claude-opus-4");
 
         assert!(pricing.is_some());
+    }
+
+    // ========== fuzzy pricing tests ==========
+
+    fn create_fuzzy_test_service() -> (PricingService, TempDir) {
+        let temp_dir = TempDir::new().unwrap();
+        let cache_path = temp_dir.path().join("pricing.json");
+
+        let mut models = HashMap::new();
+        models.insert(
+            "gpt-5".to_string(),
+            ModelPricing {
+                input_cost_per_token: Some(0.00001),
+                output_cost_per_token: Some(0.00003),
+                cache_read_input_token_cost: None,
+                cache_creation_input_token_cost: None,
+            },
+        );
+        models.insert(
+            "gpt-5-2-codex".to_string(),
+            ModelPricing {
+                input_cost_per_token: Some(0.000005),
+                output_cost_per_token: Some(0.000015),
+                cache_read_input_token_cost: None,
+                cache_creation_input_token_cost: None,
+            },
+        );
+        models.insert(
+            "o4-mini".to_string(),
+            ModelPricing {
+                input_cost_per_token: Some(0.000001),
+                output_cost_per_token: Some(0.000004),
+                cache_read_input_token_cost: None,
+                cache_creation_input_token_cost: None,
+            },
+        );
+        models.insert(
+            "azure/gpt-5".to_string(),
+            ModelPricing {
+                input_cost_per_token: Some(0.00002),
+                output_cost_per_token: Some(0.00006),
+                cache_read_input_token_cost: None,
+                cache_creation_input_token_cost: None,
+            },
+        );
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+
+        let cache = PricingCache {
+            fetched_at: now,
+            models,
+        };
+
+        let content = serde_json::to_string_pretty(&cache).unwrap();
+        fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
+        fs::write(&cache_path, content).unwrap();
+
+        let service = PricingService::with_cache_path(cache_path).unwrap();
+        (service, temp_dir)
+    }
+
+    #[test]
+    fn test_fuzzy_pricing_fallback() {
+        let (service, _temp) = create_fuzzy_test_service();
+        // gpt-5.3-codex → normalized: gpt-5-3-codex
+        // Not exact, not normalized match, but contains "gpt-5"
+        let pricing = service.get_pricing("gpt-5.3-codex");
+        assert!(pricing.is_some());
+        // Should match "gpt-5" (len=5), not "gpt-5-2-codex" (doesn't match substring)
+        let p = pricing.unwrap();
+        assert!((p.input_cost_per_token.unwrap() - 0.00001).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_fuzzy_pricing_prefers_exact() {
+        let (service, _temp) = create_fuzzy_test_service();
+        // gpt-5-2-codex is an exact match in the cache
+        let pricing = service.get_pricing("gpt-5-2-codex");
+        assert!(pricing.is_some());
+        let p = pricing.unwrap();
+        assert!((p.input_cost_per_token.unwrap() - 0.000005).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_fuzzy_pricing_skips_provider_prefixed() {
+        let (service, _temp) = create_fuzzy_test_service();
+        // "azure/gpt-5" should be skipped in fuzzy matching
+        // "gpt-5.3-codex" should match "gpt-5", not "azure/gpt-5"
+        let pricing = service.get_pricing("gpt-5.3-codex");
+        assert!(pricing.is_some());
+        let p = pricing.unwrap();
+        // Should be "gpt-5" pricing ($0.00001), not "azure/gpt-5" ($0.00002)
+        assert!((p.input_cost_per_token.unwrap() - 0.00001).abs() < 1e-10);
     }
 
     // ========== PricingCache tests ==========
