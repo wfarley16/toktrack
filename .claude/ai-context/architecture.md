@@ -16,18 +16,19 @@ TUI[ratatui] → CLI[clap] → Services → Parsers[trait] → Cache
 | Widget | Purpose |
 |--------|---------|
 | `theme.rs` | Theme enum (Dark/Light), auto-detect via `terminal-light`, 10 semantic color methods + heatmap_color |
-| `app.rs` | AppState enum, TuiConfig (initial_tab, initial_view_mode), event loop, Theme::detect() before raw mode |
+| `app.rs` | ViewMode (Dashboard{tab}/SourceDetail), TuiConfig (initial_view_mode, initial_tab), event loop, Theme::detect() before raw mode |
 | `widgets/spinner.rs` | Loading animation (dots/braille) |
 | `widgets/heatmap.rs` | 52-week heatmap (2x2 blocks, 14 rows, responsive, colorblind-accessible) |
-| `widgets/overview.rs` | Overview layout (hero stat, sub-stats, keybindings) |
-| `widgets/models.rs` | Models view (per-model breakdown, cost %, percentage bar) |
+| `widgets/tabs.rs` | Tab enum (Overview/Stats/Models), TabBar widget, next/prev/from_number |
+| `widgets/stats.rs` | Stats view (6 cards: tokens, avg, peak, cost, avg cost, active days) with TabBar |
+| `widgets/overview.rs` | Overview tab (hero stat, cost, heatmap, source bars, TabBar, keybindings) |
+| `widgets/source_detail.rs` | Source drill-down (per-source daily table + models + stats, d/w/m modes) |
+| `widgets/models.rs` | Models tab (per-model breakdown, cost %, percentage bar, TabBar, up to 10 models) |
 | `widgets/daily.rs` | Daily view (daily/weekly/monthly modes, sparklines, scroll, responsive columns) |
 | `widgets/help.rs` | Help popup (keyboard shortcuts overlay, `?` toggle) |
 | `widgets/quit_confirm.rs` | Quit confirm popup (Ctrl+C trigger, y/n/Enter/Esc response) |
 | `widgets/model_breakdown.rs` | Model breakdown popup (Enter on Daily row, shows per-model cost) |
-| `widgets/stats.rs` | Stats view (6 cards: total/avg tokens, peak day, costs, active days) |
 | `widgets/legend.rs` | Heatmap intensity legend |
-| `widgets/tabs.rs` | Tab enum, TabBar widget |
 
 ## Core Trait
 ```rust

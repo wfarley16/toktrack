@@ -14,9 +14,8 @@ use crate::tui::theme::Theme;
 pub enum Tab {
     #[default]
     Overview,
-    Daily,
-    Models,
     Stats,
+    Models,
 }
 
 impl Tab {
@@ -24,44 +23,40 @@ impl Tab {
     pub fn label(self) -> &'static str {
         match self {
             Self::Overview => "Overview",
-            Self::Models => "Models",
-            Self::Daily => "Daily",
             Self::Stats => "Stats",
+            Self::Models => "Models",
         }
     }
 
     /// Get all tabs in order
     pub fn all() -> &'static [Tab] {
-        &[Tab::Overview, Tab::Daily, Tab::Models, Tab::Stats]
+        &[Tab::Overview, Tab::Stats, Tab::Models]
     }
 
     /// Get the next tab (wrapping)
     pub fn next(self) -> Self {
         match self {
-            Self::Overview => Self::Daily,
-            Self::Daily => Self::Models,
-            Self::Models => Self::Stats,
-            Self::Stats => Self::Overview,
+            Self::Overview => Self::Stats,
+            Self::Stats => Self::Models,
+            Self::Models => Self::Overview,
         }
     }
 
     /// Get the previous tab (wrapping)
     pub fn prev(self) -> Self {
         match self {
-            Self::Overview => Self::Stats,
-            Self::Daily => Self::Overview,
-            Self::Models => Self::Daily,
-            Self::Stats => Self::Models,
+            Self::Overview => Self::Models,
+            Self::Stats => Self::Overview,
+            Self::Models => Self::Stats,
         }
     }
 
-    /// Get tab from number key (1-4)
+    /// Get tab from number key (1-3)
     pub fn from_number(n: u8) -> Option<Self> {
         match n {
             1 => Some(Self::Overview),
-            2 => Some(Self::Daily),
+            2 => Some(Self::Stats),
             3 => Some(Self::Models),
-            4 => Some(Self::Stats),
             _ => None,
         }
     }
@@ -142,35 +137,31 @@ mod tests {
     #[test]
     fn test_tab_labels() {
         assert_eq!(Tab::Overview.label(), "Overview");
-        assert_eq!(Tab::Models.label(), "Models");
-        assert_eq!(Tab::Daily.label(), "Daily");
         assert_eq!(Tab::Stats.label(), "Stats");
+        assert_eq!(Tab::Models.label(), "Models");
     }
 
     #[test]
     fn test_tab_all() {
         let all = Tab::all();
-        assert_eq!(all.len(), 4);
+        assert_eq!(all.len(), 3);
         assert_eq!(all[0], Tab::Overview);
-        assert_eq!(all[1], Tab::Daily);
+        assert_eq!(all[1], Tab::Stats);
         assert_eq!(all[2], Tab::Models);
-        assert_eq!(all[3], Tab::Stats);
     }
 
     #[test]
     fn test_tab_next() {
-        assert_eq!(Tab::Overview.next(), Tab::Daily);
-        assert_eq!(Tab::Daily.next(), Tab::Models);
-        assert_eq!(Tab::Models.next(), Tab::Stats);
-        assert_eq!(Tab::Stats.next(), Tab::Overview);
+        assert_eq!(Tab::Overview.next(), Tab::Stats);
+        assert_eq!(Tab::Stats.next(), Tab::Models);
+        assert_eq!(Tab::Models.next(), Tab::Overview);
     }
 
     #[test]
     fn test_tab_prev() {
-        assert_eq!(Tab::Overview.prev(), Tab::Stats);
-        assert_eq!(Tab::Stats.prev(), Tab::Models);
-        assert_eq!(Tab::Models.prev(), Tab::Daily);
-        assert_eq!(Tab::Daily.prev(), Tab::Overview);
+        assert_eq!(Tab::Overview.prev(), Tab::Models);
+        assert_eq!(Tab::Stats.prev(), Tab::Overview);
+        assert_eq!(Tab::Models.prev(), Tab::Stats);
     }
 
     #[test]
@@ -181,10 +172,9 @@ mod tests {
     #[test]
     fn test_tab_from_number() {
         assert_eq!(Tab::from_number(1), Some(Tab::Overview));
-        assert_eq!(Tab::from_number(2), Some(Tab::Daily));
+        assert_eq!(Tab::from_number(2), Some(Tab::Stats));
         assert_eq!(Tab::from_number(3), Some(Tab::Models));
-        assert_eq!(Tab::from_number(4), Some(Tab::Stats));
         assert_eq!(Tab::from_number(0), None);
-        assert_eq!(Tab::from_number(5), None);
+        assert_eq!(Tab::from_number(4), None);
     }
 }

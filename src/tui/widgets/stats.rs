@@ -297,9 +297,9 @@ mod tests {
 
     #[test]
     fn test_cards_per_row_wide() {
-        // Width 170 should fit 5 cards: (170-4) / 30 = 5
+        // Width 170 should fit max 3 cards (FIXED_COLS)
         let cols = cards_per_row(170);
-        assert!(cols >= 3);
+        assert_eq!(cols, 3);
     }
 
     #[test]

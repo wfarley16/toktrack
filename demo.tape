@@ -9,13 +9,25 @@ Type "toktrack"
 Enter
 Sleep 1500ms
 
-# Tab 2: Models
-Type "2"
+# Overview: 소스 탐색 (j로 이동)
+Type "j"
+Sleep 300ms
+Type "j"
+Sleep 300ms
+Type "j"
+Sleep 1000ms
+
+# 첫 번째 소스로 돌아가서 SourceDetail 진입
+Type "k"
+Sleep 200ms
+Type "k"
+Sleep 200ms
+Type "k"
+Sleep 200ms
+Enter
 Sleep 1500ms
 
-# Tab 3: Daily (기본 Daily 뷰)
-Type "3"
-Sleep 200ms
+# SourceDetail: Daily 스크롤
 Type "k"
 Sleep 200ms
 Type "k"
@@ -25,19 +37,9 @@ Sleep 200ms
 Type "k"
 Sleep 200ms
 Type "k"
-Sleep 200ms
-Type "k"
-Sleep 200ms
-Type "k"
-Sleep 200ms
-Type "k"
-Sleep 200ms
-Type "k"
-Sleep 200ms
-Type "k"
-Sleep 1500ms
+Sleep 1000ms
 
-# Model breakdown popup (Enter 키)
+# Model breakdown popup
 Enter
 Sleep 2000ms
 Escape
@@ -51,9 +53,19 @@ Sleep 1500ms
 Type "m"
 Sleep 1500ms
 
-# Tab 4: Stats
-Type "4"
+# Overview로 돌아가기
+Escape
+Sleep 1000ms
+
+# Tab 2: Stats
+Type "2"
 Sleep 1500ms
 
-# 종료
-Type "q"
+# Tab 3: Models
+Type "3"
+Sleep 1500ms
+
+# 종료 (Ctrl+C → y)
+Ctrl+C
+Sleep 500ms
+Type "y"

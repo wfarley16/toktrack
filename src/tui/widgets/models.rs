@@ -82,21 +82,21 @@ const TABLE_WIDTH: u16 = 78;
 /// Models view widget
 pub struct ModelsView<'a> {
     data: &'a ModelsData,
-    selected_tab: Tab,
     theme: Theme,
+    tab: Tab,
 }
 
 impl<'a> ModelsView<'a> {
     pub fn new(data: &'a ModelsData, theme: Theme) -> Self {
         Self {
             data,
-            selected_tab: Tab::Models,
             theme,
+            tab: Tab::Models,
         }
     }
 
     pub fn with_tab(mut self, tab: Tab) -> Self {
-        self.selected_tab = tab;
+        self.tab = tab;
         self
     }
 }
@@ -127,8 +127,8 @@ impl Widget for ModelsView<'_> {
         ])
         .split(centered_area);
 
-        // Render tabs
-        self.render_tabs(chunks[1], buf);
+        // Render tab bar
+        TabBar::new(self.tab, self.theme).render(chunks[1], buf);
 
         // Render separator
         self.render_separator(chunks[2], buf);
@@ -151,11 +151,6 @@ impl ModelsView<'_> {
     /// Calculate horizontal offset to center the table
     fn calculate_table_offset(&self, area_width: u16) -> u16 {
         area_width.saturating_sub(TABLE_WIDTH) / 2
-    }
-
-    fn render_tabs(&self, area: Rect, buf: &mut Buffer) {
-        let tab_bar = TabBar::new(self.selected_tab, self.theme);
-        tab_bar.render(area, buf);
     }
 
     fn render_separator(&self, area: Rect, buf: &mut Buffer) {
@@ -211,7 +206,7 @@ impl ModelsView<'_> {
         );
     }
 
-    fn render_models(&self, area: Rect, buf: &mut Buffer) {
+    pub fn render_models(&self, area: Rect, buf: &mut Buffer) {
         let offset = self.calculate_table_offset(area.width);
 
         for (i, model) in self
