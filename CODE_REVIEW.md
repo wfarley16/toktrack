@@ -7,14 +7,6 @@
 
 ## 1. Code Issues
 
-### ~~1.1 [High] 캐시 저장 락이 원자적이지 않음~~ ✅ RESOLVED
-
----
-
-### ~~1.2 [High] 파서 타임스탬프 파싱 실패 시 `Utc::now()` 대입~~ ✅ RESOLVED
-
----
-
 ### 1.3 [High] `toktrack daily|weekly|monthly` TUI 진입 시 Overview 탭으로 시작
 
 **파일**: `src/cli/mod.rs:62-95`, `src/tui/app.rs:150-151`
@@ -73,10 +65,6 @@ let summaries: Vec<DailySummary> = cache.summaries.into_iter()
 
 **영향**: Parser A 버전 일치 + Parser B 버전 불일치 → B는 구버전 집계 로직의 캐시 데이터를 계속 사용
 **수정**: parser별로 `is_version_current()` 검사, mismatch parser는 cold parse 강제
-
----
-
-### ~~1.5 [Medium] DST 전환 시 `from_local_datetime().unwrap()` panic 가능~~ ✅ RESOLVED
 
 ---
 
@@ -206,7 +194,6 @@ let session: GeminiSession = unsafe {
 ### Phase 1: Data Correctness (High)
 | ID | 항목 | 난이도 |
 |----|------|--------|
-| ~~1.2~~ | ~~타임스탬프 실패 시 skip (return None)~~ | ✅ |
 | 1.7 | `Some(0.0)` 조건 제거 → `is_none()`만 검사 | Low |
 | 1.6 | `input_tokens` 의미론 검증 + 공식/문서 정정 | Medium |
 | 1.3 | daily/weekly/monthly 초기 탭 설계 확정 | Medium |
@@ -214,9 +201,7 @@ let session: GeminiSession = unsafe {
 ### Phase 2: Robustness (Medium)
 | ID | 항목 | 난이도 |
 |----|------|--------|
-| ~~1.1~~ | ~~캐시 저장 락 재설계 (.lock 파일 방식)~~ | ✅ |
 | 1.4 | parser별 버전 검사 강제 | Medium |
-| ~~1.5~~ | ~~DST-safe 자정 계산~~ | ✅ |
 | 1.8 | 파서 home dir 폴백 → 에러 반환 | Low |
 
 ### Phase 3: Documentation Sync (Low effort, High impact)
