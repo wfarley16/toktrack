@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.4](https://github.com/mag123c/toktrack/compare/v1.0.3...v1.0.4) (2026-02-09)
+
+
+### Bug Fixes
+
+* **parser,services:** codex delta parsing, input normalization, fuzzy pricing ([19ff354](https://github.com/mag123c/toktrack/commit/19ff354ea224245c007bf09d7bf2e7a4f1954db0))
+
 ## [1.0.3](https://github.com/mag123c/toktrack/compare/v1.0.2...v1.0.3) (2026-02-09)
 
 
