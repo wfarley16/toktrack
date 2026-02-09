@@ -1,7 +1,7 @@
 //! OpenCode CLI JSON parser
 
 use crate::types::{Result, ToktrackError, UsageEntry};
-use chrono::{DateTime, Utc};
+use chrono::DateTime;
 use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -101,16 +101,19 @@ impl CLIParser for OpenCodeParser {
             None => return Ok(Vec::new()),
         };
 
-        let timestamp = i64::try_from(message.time.created)
+        let timestamp = match i64::try_from(message.time.created)
             .ok()
             .and_then(DateTime::from_timestamp_millis)
-            .unwrap_or_else(|| {
+        {
+            Some(ts) => ts,
+            None => {
                 eprintln!(
-                    "[toktrack] Warning: Invalid timestamp '{}', using current time",
+                    "[toktrack] Warning: Invalid timestamp '{}', skipping entry",
                     message.time.created
                 );
-                Utc::now()
-            });
+                return Ok(Vec::new());
+            }
+        };
 
         let (cache_read, cache_write) = match tokens.cache {
             Some(c) => (c.read, c.write),

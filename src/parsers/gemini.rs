@@ -106,10 +106,10 @@ impl CLIParser for GeminiParser {
                 Ok(dt) => dt.with_timezone(&Utc),
                 Err(_) => {
                     eprintln!(
-                        "[toktrack] Warning: Invalid timestamp '{}', using current time",
+                        "[toktrack] Warning: Invalid timestamp '{}', skipping entry",
                         msg.timestamp
                     );
-                    Utc::now()
+                    continue;
                 }
             };
 

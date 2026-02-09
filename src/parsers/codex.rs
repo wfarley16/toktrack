@@ -132,10 +132,10 @@ impl CodexParser {
             Ok(dt) => dt.with_timezone(&Utc),
             Err(_) => {
                 eprintln!(
-                    "[toktrack] Warning: Invalid timestamp '{}', using current time",
+                    "[toktrack] Warning: Invalid timestamp '{}', skipping entry",
                     data.timestamp
                 );
-                Utc::now()
+                return ParseResult::Skip;
             }
         };
 
