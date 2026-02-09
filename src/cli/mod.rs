@@ -60,8 +60,8 @@ impl Cli {
                     Ok(run_daily_json()?)
                 } else {
                     crate::tui::run(TuiConfig {
-                        initial_tab: Tab::Daily,
                         initial_view_mode: DailyViewMode::Daily,
+                        initial_tab: None,
                     })
                 }
             }
@@ -70,8 +70,8 @@ impl Cli {
                     Ok(run_stats_json()?)
                 } else {
                     crate::tui::run(TuiConfig {
-                        initial_tab: Tab::Stats,
-                        initial_view_mode: DailyViewMode::default(),
+                        initial_view_mode: DailyViewMode::Daily,
+                        initial_tab: Some(Tab::Stats),
                     })
                 }
             }
@@ -80,8 +80,8 @@ impl Cli {
                     Ok(run_weekly_json()?)
                 } else {
                     crate::tui::run(TuiConfig {
-                        initial_tab: Tab::Daily,
                         initial_view_mode: DailyViewMode::Weekly,
+                        initial_tab: None,
                     })
                 }
             }
@@ -90,8 +90,8 @@ impl Cli {
                     Ok(run_monthly_json()?)
                 } else {
                     crate::tui::run(TuiConfig {
-                        initial_tab: Tab::Daily,
                         initial_view_mode: DailyViewMode::Monthly,
+                        initial_tab: None,
                     })
                 }
             }

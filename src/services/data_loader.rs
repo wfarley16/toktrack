@@ -16,6 +16,8 @@ pub struct LoadResult {
     pub summaries: Vec<DailySummary>,
     /// Usage breakdown by source CLI
     pub source_usage: Vec<SourceUsage>,
+    /// Per-source daily summaries (not merged across sources)
+    pub source_summaries: HashMap<String, Vec<DailySummary>>,
     /// Cache warning indicator (if any)
     pub cache_warning: Option<CacheWarning>,
 }
@@ -75,6 +77,7 @@ impl DataLoaderService {
 
         let mut all_summaries = Vec::new();
         let mut source_stats: HashMap<String, (u64, f64)> = HashMap::new();
+        let mut source_summaries: HashMap<String, Vec<DailySummary>> = HashMap::new();
         let mut cache_warning = None;
 
         for parser in self.registry.parsers() {
@@ -106,6 +109,10 @@ impl DataLoaderService {
                         cache_warning = warning;
                     }
                     self.collect_source_stats(&summaries, parser.name(), &mut source_stats);
+                    source_summaries
+                        .entry(parser.name().to_string())
+                        .or_default()
+                        .extend(summaries.iter().cloned());
                     all_summaries.extend(summaries);
                 }
                 Err(e) => {
@@ -124,6 +131,7 @@ impl DataLoaderService {
         Ok(LoadResult {
             summaries: all_summaries,
             source_usage,
+            source_summaries,
             cache_warning,
         })
     }
@@ -142,6 +150,7 @@ impl DataLoaderService {
 
         let mut all_summaries = Vec::new();
         let mut source_stats: HashMap<String, (u64, f64)> = HashMap::new();
+        let mut source_summaries: HashMap<String, Vec<DailySummary>> = HashMap::new();
         let mut cache_warning = None;
         let mut any_entries = false;
 
@@ -169,6 +178,10 @@ impl DataLoaderService {
                             cache_warning = warning;
                         }
                         self.collect_source_stats(&summaries, parser.name(), &mut source_stats);
+                        source_summaries
+                            .entry(parser.name().to_string())
+                            .or_default()
+                            .extend(summaries.iter().cloned());
                         all_summaries.extend(summaries);
                         continue;
                     }
@@ -185,6 +198,10 @@ impl DataLoaderService {
             // Cache unavailable: compute summaries directly
             let summaries = Aggregator::daily(&entries);
             self.collect_source_stats(&summaries, parser.name(), &mut source_stats);
+            source_summaries
+                .entry(parser.name().to_string())
+                .or_default()
+                .extend(summaries.iter().cloned());
             all_summaries.extend(summaries);
         }
 
@@ -200,6 +217,7 @@ impl DataLoaderService {
         Ok(LoadResult {
             summaries: all_summaries,
             source_usage,
+            source_summaries,
             cache_warning,
         })
     }

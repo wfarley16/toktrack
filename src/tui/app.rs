@@ -1,5 +1,6 @@
 //! Application state and event loop
 
+use std::collections::HashMap;
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
@@ -14,26 +15,40 @@ use super::theme::Theme;
 
 use crate::services::update_checker::{check_for_update, execute_update, UpdateCheckResult};
 use crate::services::{Aggregator, DataLoaderService};
-use crate::types::{CacheWarning, SourceUsage, StatsData, TotalSummary};
+use crate::types::{CacheWarning, DailySummary, SourceUsage, StatsData, TotalSummary};
 
 use super::widgets::{
     daily::{DailyData, DailyView, DailyViewMode},
     help::HelpPopup,
     model_breakdown::{ModelBreakdownPopup, ModelBreakdownState},
-    models::{ModelsData, ModelsView},
+    models::ModelsData,
     overview::{Overview, OverviewData},
     quit_confirm::{QuitConfirmPopup, QuitConfirmState},
+    source_detail::SourceDetailView,
     spinner::{LoadingStage, Spinner},
     stats::StatsView,
     tabs::Tab,
     update_popup::{DimOverlay, UpdateMessagePopup, UpdatePopup},
 };
 
+/// Current view mode
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ViewMode {
+    Dashboard { tab: Tab },
+    SourceDetail { source: String },
+}
+
+impl Default for ViewMode {
+    fn default() -> Self {
+        Self::Dashboard { tab: Tab::Overview }
+    }
+}
+
 /// Configuration for TUI startup
 #[derive(Debug, Clone, Default)]
 pub struct TuiConfig {
-    pub initial_tab: Tab,
     pub initial_view_mode: DailyViewMode,
+    pub initial_tab: Option<Tab>,
 }
 
 /// Application state
@@ -58,6 +73,12 @@ pub struct AppData {
     pub stats_data: StatsData,
     /// Usage breakdown by source CLI
     pub source_usage: Vec<SourceUsage>,
+    /// Per-source daily data
+    pub source_daily_data: HashMap<String, DailyData>,
+    /// Per-source models data
+    pub source_models_data: HashMap<String, ModelsData>,
+    /// Per-source stats data
+    pub source_stats_data: HashMap<String, StatsData>,
     /// Cache warning indicator for display in TUI
     #[allow(dead_code)] // Reserved for warning indicator feature
     pub cache_warning: Option<CacheWarning>,
@@ -97,7 +118,8 @@ impl UpdateStatus {
 pub struct App {
     state: AppState,
     should_quit: bool,
-    current_tab: Tab,
+    view_mode: ViewMode,
+    source_selected: usize,
     daily_scroll: usize,
     weekly_scroll: usize,
     monthly_scroll: usize,
@@ -123,7 +145,10 @@ impl App {
                 stage: LoadingStage::Scanning,
             },
             should_quit: false,
-            current_tab: config.initial_tab,
+            view_mode: ViewMode::Dashboard {
+                tab: config.initial_tab.unwrap_or_default(),
+            },
+            source_selected: 0,
             daily_scroll: 0,
             weekly_scroll: 0,
             monthly_scroll: 0,
@@ -187,51 +212,159 @@ impl App {
                     return;
                 }
 
-                match key.code {
-                    KeyCode::Esc => {
-                        // Esc only closes popups (e.g., help), does not trigger quit
-                        if self.show_help {
-                            self.show_help = false;
-                        }
-                        // If no popup is open, Esc does nothing
-                    }
-                    KeyCode::Tab => {
-                        self.current_tab = self.current_tab.next();
-                    }
-                    KeyCode::BackTab => {
-                        self.current_tab = self.current_tab.prev();
-                    }
-                    KeyCode::Up | KeyCode::Char('k') => {
-                        self.select_prev();
-                    }
-                    KeyCode::Down | KeyCode::Char('j') => {
-                        self.select_next();
-                    }
-                    KeyCode::Enter => {
-                        if self.current_tab == Tab::Daily {
-                            self.open_model_breakdown();
-                        }
-                    }
-                    KeyCode::Char(c @ '1'..='4') => {
-                        if let Some(tab) = Tab::from_number(c as u8 - b'0') {
-                            self.current_tab = tab;
-                        }
-                    }
-                    KeyCode::Char('?') => {
-                        self.show_help = !self.show_help;
-                    }
-                    KeyCode::Char('d') if self.current_tab == Tab::Daily => {
-                        self.daily_view_mode = DailyViewMode::Daily;
-                    }
-                    KeyCode::Char('w') if self.current_tab == Tab::Daily => {
-                        self.daily_view_mode = DailyViewMode::Weekly;
-                    }
-                    KeyCode::Char('m') if self.current_tab == Tab::Daily => {
-                        self.daily_view_mode = DailyViewMode::Monthly;
-                    }
-                    _ => {}
+                match &self.view_mode {
+                    ViewMode::Dashboard { .. } => self.handle_dashboard_event(key.code),
+                    ViewMode::SourceDetail { .. } => self.handle_source_detail_event(key.code),
                 }
             }
+        }
+    }
+
+    /// Get the current dashboard tab
+    fn current_tab(&self) -> Tab {
+        match &self.view_mode {
+            ViewMode::Dashboard { tab } => *tab,
+            _ => Tab::Overview,
+        }
+    }
+
+    /// Set the current dashboard tab
+    fn set_tab(&mut self, tab: Tab) {
+        self.view_mode = ViewMode::Dashboard { tab };
+    }
+
+    /// Handle keyboard events in Dashboard mode
+    fn handle_dashboard_event(&mut self, code: KeyCode) {
+        // Common keys for all tabs
+        match code {
+            KeyCode::Esc => {
+                if self.show_help {
+                    self.show_help = false;
+                }
+                return;
+            }
+            KeyCode::Tab | KeyCode::BackTab => {
+                let tab = self.current_tab();
+                let next = if code == KeyCode::Tab {
+                    tab.next()
+                } else {
+                    tab.prev()
+                };
+                self.set_tab(next);
+                return;
+            }
+            KeyCode::Char('1') => {
+                if let Some(tab) = Tab::from_number(1) {
+                    self.set_tab(tab);
+                }
+                return;
+            }
+            KeyCode::Char('2') => {
+                if let Some(tab) = Tab::from_number(2) {
+                    self.set_tab(tab);
+                }
+                return;
+            }
+            KeyCode::Char('3') => {
+                if let Some(tab) = Tab::from_number(3) {
+                    self.set_tab(tab);
+                }
+                return;
+            }
+            KeyCode::Char('?') => {
+                self.show_help = !self.show_help;
+                return;
+            }
+            _ => {}
+        }
+
+        // Tab-specific keys
+        match self.current_tab() {
+            Tab::Overview => match code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    if self.source_selected > 0 {
+                        self.source_selected -= 1;
+                    }
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    if let AppState::Ready { data } = &self.state {
+                        let max = data.source_usage.len().saturating_sub(1);
+                        if self.source_selected < max {
+                            self.source_selected += 1;
+                        }
+                    }
+                }
+                KeyCode::Enter => {
+                    if let AppState::Ready { data } = &self.state {
+                        if let Some(source) = data.source_usage.get(self.source_selected) {
+                            self.view_mode = ViewMode::SourceDetail {
+                                source: source.source.clone(),
+                            };
+                            // Reset scroll/selection for source detail
+                            self.daily_scroll = 0;
+                            self.weekly_scroll = 0;
+                            self.monthly_scroll = 0;
+                            self.daily_selected = None;
+                            self.weekly_selected = None;
+                            self.monthly_selected = None;
+                            // Set scroll to bottom for the source's daily data
+                            if let Some(source_daily) = data.source_daily_data.get(&source.source) {
+                                self.daily_scroll = DailyView::max_scroll_offset(
+                                    source_daily,
+                                    DailyViewMode::Daily,
+                                );
+                                self.weekly_scroll = DailyView::max_scroll_offset(
+                                    source_daily,
+                                    DailyViewMode::Weekly,
+                                );
+                                self.monthly_scroll = DailyView::max_scroll_offset(
+                                    source_daily,
+                                    DailyViewMode::Monthly,
+                                );
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            },
+            Tab::Stats | Tab::Models => {
+                // Stats/Models tabs have no additional keys beyond common ones
+            }
+        }
+    }
+
+    /// Handle keyboard events in SourceDetail mode
+    fn handle_source_detail_event(&mut self, code: KeyCode) {
+        match code {
+            KeyCode::Esc => {
+                if self.show_help {
+                    self.show_help = false;
+                } else {
+                    self.view_mode = ViewMode::Dashboard { tab: Tab::Overview };
+                }
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.select_prev();
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                self.select_next();
+            }
+            KeyCode::Enter => {
+                self.open_model_breakdown();
+            }
+            KeyCode::Char('d') => {
+                self.daily_view_mode = DailyViewMode::Daily;
+            }
+            KeyCode::Char('w') => {
+                self.daily_view_mode = DailyViewMode::Weekly;
+            }
+            KeyCode::Char('m') => {
+                self.daily_view_mode = DailyViewMode::Monthly;
+            }
+            KeyCode::Char('?') => {
+                self.show_help = !self.show_help;
+            }
+            _ => {}
         }
     }
 
@@ -290,7 +423,7 @@ impl App {
         if let Event::Key(key) = event {
             if key.kind == KeyEventKind::Press {
                 match (&self.update_status, key.code) {
-                    // Available state: ↑↓ to select, Enter to confirm, q/Esc to quit
+                    // Available state: up/down to select, Enter to confirm, q/Esc to quit
                     (UpdateStatus::Available { .. }, KeyCode::Up | KeyCode::Down) => {
                         self.update_selection = 1 - self.update_selection;
                     }
@@ -345,16 +478,27 @@ impl App {
         }
     }
 
-    /// Select previous row (move up) in Daily tab
+    /// Get the active DailyData depending on the current view mode
+    fn active_daily_data<'a>(&self, data: &'a AppData) -> &'a DailyData {
+        match &self.view_mode {
+            ViewMode::SourceDetail { source } => data
+                .source_daily_data
+                .get(source)
+                .unwrap_or(&data.daily_data),
+            ViewMode::Dashboard { .. } => &data.daily_data,
+        }
+    }
+
+    /// Select previous row (move up) in SourceDetail
     fn select_prev(&mut self) {
-        if self.current_tab != Tab::Daily {
+        if !matches!(self.view_mode, ViewMode::SourceDetail { .. }) {
             return;
         }
 
-        // First, get the count from state (immutable borrow)
         let count = match &self.state {
             AppState::Ready { data } => {
-                let (summaries, _) = data.daily_data.for_mode(self.daily_view_mode);
+                let daily_data = self.active_daily_data(data);
+                let (summaries, _) = daily_data.for_mode(self.daily_view_mode);
                 summaries.len()
             }
             _ => return,
@@ -364,29 +508,27 @@ impl App {
             return;
         }
 
-        // Now mutate (mutable borrow)
         let current = self.active_selected();
         let new_idx = match current {
-            None => count.saturating_sub(1), // Start from bottom (most recent)
-            Some(0) => 0,                    // Already at top
+            None => count.saturating_sub(1),
+            Some(0) => 0,
             Some(idx) => idx.saturating_sub(1),
         };
         *self.active_selected_mut() = Some(new_idx);
 
-        // Adjust scroll to keep selection visible
         self.adjust_scroll_for_selection();
     }
 
-    /// Select next row (move down) in Daily tab
+    /// Select next row (move down) in SourceDetail
     fn select_next(&mut self) {
-        if self.current_tab != Tab::Daily {
+        if !matches!(self.view_mode, ViewMode::SourceDetail { .. }) {
             return;
         }
 
-        // First, get the count from state (immutable borrow)
         let count = match &self.state {
             AppState::Ready { data } => {
-                let (summaries, _) = data.daily_data.for_mode(self.daily_view_mode);
+                let daily_data = self.active_daily_data(data);
+                let (summaries, _) = daily_data.for_mode(self.daily_view_mode);
                 summaries.len()
             }
             _ => return,
@@ -398,16 +540,14 @@ impl App {
 
         let max_idx = count.saturating_sub(1);
 
-        // Now mutate (mutable borrow)
         let current = self.active_selected();
         let new_idx = match current {
-            None => count.saturating_sub(1), // Start from bottom (most recent)
-            Some(idx) if idx >= max_idx => max_idx, // Already at bottom
+            None => count.saturating_sub(1),
+            Some(idx) if idx >= max_idx => max_idx,
             Some(idx) => idx + 1,
         };
         *self.active_selected_mut() = Some(new_idx);
 
-        // Adjust scroll to keep selection visible
         self.adjust_scroll_for_selection();
     }
 
@@ -422,19 +562,16 @@ impl App {
 
         let scroll = self.active_scroll();
 
-        // If selection is above visible area, scroll up
         if selected < scroll {
             *self.active_scroll_mut() = selected;
-        }
-        // If selection is below visible area, scroll down
-        else if selected >= scroll + VISIBLE_ROWS {
+        } else if selected >= scroll + VISIBLE_ROWS {
             *self.active_scroll_mut() = selected.saturating_sub(VISIBLE_ROWS - 1);
         }
     }
 
     /// Open model breakdown popup for the currently selected row
     fn open_model_breakdown(&mut self) {
-        if self.current_tab != Tab::Daily {
+        if !matches!(self.view_mode, ViewMode::SourceDetail { .. }) {
             return;
         }
         let selected = match self.active_selected() {
@@ -443,9 +580,9 @@ impl App {
         };
 
         if let AppState::Ready { data } = &self.state {
-            let (summaries, _) = data.daily_data.for_mode(self.daily_view_mode);
+            let daily_data = self.active_daily_data(data);
+            let (summaries, _) = daily_data.for_mode(self.daily_view_mode);
             if let Some(summary) = summaries.get(selected) {
-                // Format date label based on view mode
                 let date_label = match self.daily_view_mode {
                     DailyViewMode::Daily | DailyViewMode::Weekly => {
                         summary.date.format("%Y-%m-%d").to_string()
@@ -453,7 +590,6 @@ impl App {
                     DailyViewMode::Monthly => summary.date.format("%Y-%m").to_string(),
                 };
 
-                // Collect models as Vec
                 let models: Vec<_> = summary
                     .models
                     .iter()
@@ -507,40 +643,58 @@ impl Widget for &App {
                 spinner.render(area, buf);
             }
             AppState::Ready { data } => {
-                // Render main view
-                match self.current_tab {
-                    Tab::Overview => {
-                        let today = Local::now().date_naive();
-                        let overview_data = OverviewData {
-                            total: &data.total,
-                            daily_tokens: &data.daily_tokens,
-                            source_usage: &data.source_usage,
-                        };
-                        let overview = Overview::new(overview_data, today, self.theme)
-                            .with_tab(self.current_tab);
-                        overview.render(area, buf);
-                    }
-                    Tab::Models => {
-                        let models_view = ModelsView::new(&data.models_data, self.theme)
-                            .with_tab(self.current_tab);
-                        models_view.render(area, buf);
-                    }
-                    Tab::Daily => {
-                        let daily_view = DailyView::new(
-                            &data.daily_data,
+                match &self.view_mode {
+                    ViewMode::Dashboard { tab } => match tab {
+                        Tab::Overview => {
+                            let today = Local::now().date_naive();
+                            let overview_data = OverviewData {
+                                total: &data.total,
+                                daily_tokens: &data.daily_tokens,
+                                source_usage: &data.source_usage,
+                                selected_source: Some(self.source_selected),
+                                selected_tab: *tab,
+                            };
+                            let overview = Overview::new(overview_data, today, self.theme);
+                            overview.render(area, buf);
+                        }
+                        Tab::Stats => {
+                            let stats_view =
+                                StatsView::new(&data.stats_data, self.theme).with_tab(*tab);
+                            stats_view.render(area, buf);
+                        }
+                        Tab::Models => {
+                            let models_view = super::widgets::models::ModelsView::new(
+                                &data.models_data,
+                                self.theme,
+                            )
+                            .with_tab(*tab);
+                            models_view.render(area, buf);
+                        }
+                    },
+                    ViewMode::SourceDetail { source } => {
+                        let daily_data = data
+                            .source_daily_data
+                            .get(source)
+                            .unwrap_or(&data.daily_data);
+                        let models_data = data
+                            .source_models_data
+                            .get(source)
+                            .unwrap_or(&data.models_data);
+                        let stats_data = data
+                            .source_stats_data
+                            .get(source)
+                            .unwrap_or(&data.stats_data);
+                        let source_detail = SourceDetailView::new(
+                            source,
+                            daily_data,
+                            models_data,
+                            stats_data,
                             self.active_scroll(),
                             self.daily_view_mode,
+                            self.active_selected(),
                             self.theme,
-                            data.stats_data.daily_avg_cost,
-                        )
-                        .with_tab(self.current_tab)
-                        .with_selected_index(self.active_selected());
-                        daily_view.render(area, buf);
-                    }
-                    Tab::Stats => {
-                        let stats_view =
-                            StatsView::new(&data.stats_data, self.theme).with_tab(self.current_tab);
-                        stats_view.render(area, buf);
+                        );
+                        source_detail.render(area, buf);
                     }
                 }
 
@@ -616,13 +770,19 @@ pub fn run(config: TuiConfig) -> anyhow::Result<()> {
 fn load_data_sync() -> Result<Box<AppData>, String> {
     let result = DataLoaderService::new().load().map_err(|e| e.to_string())?;
 
-    build_app_data_from_summaries(result.summaries, result.source_usage, result.cache_warning)
+    build_app_data_from_summaries(
+        result.summaries,
+        result.source_usage,
+        result.source_summaries,
+        result.cache_warning,
+    )
 }
 
 /// Build AppData from DailySummary list (no raw entries needed).
 fn build_app_data_from_summaries(
-    summaries: Vec<crate::types::DailySummary>,
+    summaries: Vec<DailySummary>,
     source_usage: Vec<SourceUsage>,
+    source_summaries: HashMap<String, Vec<DailySummary>>,
     cache_warning: Option<CacheWarning>,
 ) -> Result<Box<AppData>, String> {
     let total = Aggregator::total_from_daily(&summaries);
@@ -646,6 +806,27 @@ fn build_app_data_from_summaries(
     let stats_data = StatsData::from_daily_summaries(&summaries);
     let daily_data = DailyData::from_daily_summaries(summaries);
 
+    // Build per-source data
+    let mut source_daily_data = HashMap::new();
+    let mut source_models_data = HashMap::new();
+    let mut source_stats_data = HashMap::new();
+
+    for (source_name, src_summaries) in &source_summaries {
+        let src_model_map = Aggregator::by_model_from_daily(src_summaries);
+        source_daily_data.insert(
+            source_name.clone(),
+            DailyData::from_daily_summaries(src_summaries.clone()),
+        );
+        source_models_data.insert(
+            source_name.clone(),
+            ModelsData::from_model_usage(&src_model_map),
+        );
+        source_stats_data.insert(
+            source_name.clone(),
+            StatsData::from_daily_summaries(src_summaries),
+        );
+    }
+
     Ok(Box::new(AppData {
         total,
         daily_tokens,
@@ -653,6 +834,9 @@ fn build_app_data_from_summaries(
         daily_data,
         stats_data,
         source_usage,
+        source_daily_data,
+        source_models_data,
+        source_stats_data,
         cache_warning,
     }))
 }
@@ -803,7 +987,14 @@ mod tests {
                 models_data,
                 daily_data,
                 stats_data,
-                source_usage: vec![],
+                source_usage: vec![SourceUsage {
+                    source: "claude".to_string(),
+                    total_tokens: 3000,
+                    total_cost_usd: 0.20,
+                }],
+                source_daily_data: HashMap::new(),
+                source_models_data: HashMap::new(),
+                source_stats_data: HashMap::new(),
                 cache_warning: None,
             }),
         };
@@ -835,7 +1026,6 @@ mod tests {
         let event = Event::Key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
         app.handle_event(event);
 
-        // q key should do nothing (no quit confirm, no quit)
         assert!(!app.should_quit());
         assert!(app.quit_confirm.is_none());
     }
@@ -850,22 +1040,19 @@ mod tests {
         let event = Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         app.handle_event(event);
 
-        // Esc should close help popup, not show quit confirm
         assert!(!app.show_help);
         assert!(app.quit_confirm.is_none());
         assert!(!app.should_quit());
     }
 
     #[test]
-    fn test_esc_does_nothing_when_no_popup() {
+    fn test_esc_does_nothing_when_no_popup_dashboard() {
         let mut app = App::default();
-        // Default show_help is false
         assert!(!app.show_help);
 
         let event = Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         app.handle_event(event);
 
-        // Esc should do nothing when no popup is open
         assert!(!app.show_help);
         assert!(app.quit_confirm.is_none());
         assert!(!app.should_quit());
@@ -893,67 +1080,68 @@ mod tests {
     }
 
     #[test]
-    fn test_app_tab_navigation() {
-        let mut app = App::default();
-        assert_eq!(app.current_tab, Tab::Overview);
-
-        // Tab forward
-        let event = Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-        app.handle_event(event);
-        assert_eq!(app.current_tab, Tab::Daily);
-
-        app.handle_event(Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)));
-        assert_eq!(app.current_tab, Tab::Models);
-
-        app.handle_event(Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)));
-        assert_eq!(app.current_tab, Tab::Stats);
-
-        // Wrap around
-        app.handle_event(Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)));
-        assert_eq!(app.current_tab, Tab::Overview);
+    fn test_view_mode_starts_dashboard() {
+        let app = App::default();
+        assert!(matches!(app.view_mode, ViewMode::Dashboard { .. }));
     }
 
     #[test]
-    fn test_app_tab_navigation_backward() {
-        let mut app = App::default();
-        assert_eq!(app.current_tab, Tab::Overview);
-
-        // Shift+Tab (BackTab)
-        let event = Event::Key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT));
+    fn test_enter_navigates_to_source_detail() {
+        let mut app = make_ready_app();
+        // source_selected defaults to 0, source_usage has "claude"
+        let event = Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         app.handle_event(event);
-        assert_eq!(app.current_tab, Tab::Stats);
 
-        app.handle_event(Event::Key(KeyEvent::new(
-            KeyCode::BackTab,
-            KeyModifiers::SHIFT,
-        )));
-        assert_eq!(app.current_tab, Tab::Models);
+        assert_eq!(
+            app.view_mode,
+            ViewMode::SourceDetail {
+                source: "claude".to_string()
+            }
+        );
     }
 
     #[test]
-    fn test_app_number_key_navigation() {
-        let mut app = App::default();
-        assert_eq!(app.current_tab, Tab::Overview);
+    fn test_esc_returns_to_dashboard() {
+        let mut app = make_ready_app();
+        app.view_mode = ViewMode::SourceDetail {
+            source: "claude".to_string(),
+        };
 
-        // Press '2' to go to Daily
-        let event = Event::Key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE));
+        let event = Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         app.handle_event(event);
-        assert_eq!(app.current_tab, Tab::Daily);
 
-        // Press '4' to go to Stats
-        let event = Event::Key(KeyEvent::new(KeyCode::Char('4'), KeyModifiers::NONE));
-        app.handle_event(event);
-        assert_eq!(app.current_tab, Tab::Stats);
+        assert!(matches!(app.view_mode, ViewMode::Dashboard { .. }));
+    }
 
-        // Press '3' to go to Models
-        let event = Event::Key(KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE));
-        app.handle_event(event);
-        assert_eq!(app.current_tab, Tab::Models);
+    #[test]
+    fn test_source_selection_up_down() {
+        let mut app = make_ready_app();
+        // Add a second source
+        if let AppState::Ready { data } = &mut app.state {
+            data.source_usage.push(SourceUsage {
+                source: "opencode".to_string(),
+                total_tokens: 1000,
+                total_cost_usd: 0.05,
+            });
+        }
 
-        // Press '1' to go back to Overview
-        let event = Event::Key(KeyEvent::new(KeyCode::Char('1'), KeyModifiers::NONE));
-        app.handle_event(event);
-        assert_eq!(app.current_tab, Tab::Overview);
+        assert_eq!(app.source_selected, 0);
+
+        // Down
+        app.handle_event(Event::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)));
+        assert_eq!(app.source_selected, 1);
+
+        // Down again should stay at 1 (max)
+        app.handle_event(Event::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)));
+        assert_eq!(app.source_selected, 1);
+
+        // Up
+        app.handle_event(Event::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)));
+        assert_eq!(app.source_selected, 0);
+
+        // Up again should stay at 0
+        app.handle_event(Event::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)));
+        assert_eq!(app.source_selected, 0);
     }
 
     #[test]
@@ -961,38 +1149,34 @@ mod tests {
         let mut app = App::default();
         assert!(!app.show_help);
 
-        // Press '?' to show help
         let event = Event::Key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
         app.handle_event(event.clone());
         assert!(app.show_help);
 
-        // Press '?' again to hide help
         app.handle_event(event);
         assert!(!app.show_help);
     }
 
     #[test]
-    fn test_d_w_m_keys_on_daily_tab() {
+    fn test_d_w_m_keys_in_source_detail() {
         let mut app = make_ready_app();
-        // Navigate to Daily tab
-        app.current_tab = Tab::Daily;
+        app.view_mode = ViewMode::SourceDetail {
+            source: "claude".to_string(),
+        };
         assert_eq!(app.daily_view_mode, DailyViewMode::Daily);
 
-        // Press 'w' → Weekly
         app.handle_event(Event::Key(KeyEvent::new(
             KeyCode::Char('w'),
             KeyModifiers::NONE,
         )));
         assert_eq!(app.daily_view_mode, DailyViewMode::Weekly);
 
-        // Press 'm' → Monthly
         app.handle_event(Event::Key(KeyEvent::new(
             KeyCode::Char('m'),
             KeyModifiers::NONE,
         )));
         assert_eq!(app.daily_view_mode, DailyViewMode::Monthly);
 
-        // Press 'd' → Daily
         app.handle_event(Event::Key(KeyEvent::new(
             KeyCode::Char('d'),
             KeyModifiers::NONE,
@@ -1001,55 +1185,16 @@ mod tests {
     }
 
     #[test]
-    fn test_d_w_m_keys_ignored_on_other_tabs() {
+    fn test_d_w_m_keys_ignored_on_dashboard() {
         let mut app = make_ready_app();
-        app.current_tab = Tab::Overview;
+        assert!(matches!(app.view_mode, ViewMode::Dashboard { .. }));
         assert_eq!(app.daily_view_mode, DailyViewMode::Daily);
 
-        // Press 'w' on Overview tab → should NOT change view mode
         app.handle_event(Event::Key(KeyEvent::new(
             KeyCode::Char('w'),
             KeyModifiers::NONE,
         )));
         assert_eq!(app.daily_view_mode, DailyViewMode::Daily);
-
-        // Same for Models tab
-        app.current_tab = Tab::Models;
-        app.handle_event(Event::Key(KeyEvent::new(
-            KeyCode::Char('m'),
-            KeyModifiers::NONE,
-        )));
-        assert_eq!(app.daily_view_mode, DailyViewMode::Daily);
-    }
-
-    #[test]
-    fn test_independent_selection_positions() {
-        let mut app = make_ready_app();
-        app.current_tab = Tab::Daily;
-
-        // Initially no selection
-        assert!(app.daily_selected.is_none());
-        assert!(app.weekly_selected.is_none());
-
-        // Select up in Daily mode (starts from bottom)
-        app.handle_event(Event::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)));
-        assert!(app.daily_selected.is_some());
-        let daily_selected = app.daily_selected.unwrap();
-
-        // Weekly selection should be unchanged (None)
-        assert!(app.weekly_selected.is_none());
-
-        // Select up again in Daily mode
-        app.handle_event(Event::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)));
-        assert_eq!(app.daily_selected, Some(daily_selected.saturating_sub(1)));
-
-        // Switch to Weekly and select
-        app.daily_view_mode = DailyViewMode::Weekly;
-        app.handle_event(Event::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)));
-        assert!(app.weekly_selected.is_some());
-
-        // Daily selection should remain as modified
-        assert_eq!(app.daily_selected, Some(daily_selected.saturating_sub(1)));
     }
 
     // ========== Update overlay tests ==========
@@ -1061,7 +1206,6 @@ mod tests {
         assert!(app.pending_data.is_none());
     }
 
-    /// Helper to create an app with update available overlay
     fn make_update_available_app() -> App {
         App {
             update_status: UpdateStatus::Available {
@@ -1076,7 +1220,6 @@ mod tests {
     fn test_update_overlay_skip_via_selection() {
         let mut app = make_update_available_app();
 
-        // ↓ to select Skip, Enter to confirm
         let down = Event::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
         app.handle_update_event(down);
         assert_eq!(app.update_selection, 1);
@@ -1092,7 +1235,6 @@ mod tests {
     fn test_update_overlay_enter_triggers_update() {
         let mut app = make_update_available_app();
 
-        // Default selection=0 (Update now), Enter to confirm
         assert_eq!(app.update_selection, 0);
         let enter = Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         app.handle_update_event(enter);
@@ -1118,7 +1260,6 @@ mod tests {
     fn test_update_overlay_esc_dismisses() {
         let mut app = make_update_available_app();
 
-        // Esc should dismiss the update overlay (skip update), not quit
         let event = Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         app.handle_update_event(event);
 
@@ -1133,7 +1274,6 @@ mod tests {
 
         let mut app = make_update_available_app();
 
-        // Simulate data arriving while overlay is shown
         let summaries: Vec<DailySummary> = vec![DailySummary {
             date: NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
             total_input_tokens: 100,
@@ -1156,16 +1296,17 @@ mod tests {
             daily_data,
             stats_data,
             source_usage: vec![],
+            source_daily_data: HashMap::new(),
+            source_models_data: HashMap::new(),
+            source_stats_data: HashMap::new(),
             cache_warning: None,
         })));
 
-        // Skip update overlay: ↓ to Skip, Enter to confirm
         let down = Event::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
         app.handle_update_event(down);
         let enter = Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         app.handle_update_event(enter);
 
-        // Should have consumed pending_data and transitioned to Ready
         assert_eq!(app.update_status, UpdateStatus::Resolved);
         assert!(app.pending_data.is_none());
         assert!(matches!(app.state, AppState::Ready { .. }));
@@ -1226,23 +1367,20 @@ mod tests {
     #[test]
     fn test_tuiconfig_default_values() {
         let config = TuiConfig::default();
-        assert_eq!(config.initial_tab, Tab::Overview);
         assert_eq!(config.initial_view_mode, DailyViewMode::Daily);
     }
 
     #[test]
     fn test_app_new_with_custom_config() {
         let config = TuiConfig {
-            initial_tab: Tab::Daily,
             initial_view_mode: DailyViewMode::Weekly,
+            initial_tab: None,
         };
         let app = App::new(config, Theme::Dark);
 
-        // Config-driven fields
-        assert_eq!(app.current_tab, Tab::Daily);
+        assert!(matches!(app.view_mode, ViewMode::Dashboard { .. }));
         assert_eq!(app.daily_view_mode, DailyViewMode::Weekly);
 
-        // Default initial fields
         assert!(!app.should_quit);
         assert!(matches!(
             app.state,
@@ -1261,19 +1399,14 @@ mod tests {
 
     #[test]
     fn test_checking_state_does_not_show_overlay() {
-        // UpdateStatus::Checking.shows_overlay() == false is the guard that
-        // prevents handle_update_event from being called during Checking state
         assert!(!UpdateStatus::Checking.shows_overlay());
 
-        // Verify the production code path: when shows_overlay() is false,
-        // handle_event runs instead of handle_update_event
         let mut app = App::default();
         assert_eq!(app.update_status, UpdateStatus::Checking);
 
-        // Ctrl+C via handle_event should show quit_confirm (proving handle_event runs, not handle_update_event)
         let event = Event::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
         app.handle_event(event);
-        assert!(app.quit_confirm.is_some()); // Shows quit confirmation popup
+        assert!(app.quit_confirm.is_some());
     }
 
     #[test]
@@ -1286,16 +1419,13 @@ mod tests {
             ..App::default()
         };
 
-        // Set pending data with an error result
         app.pending_data = Some(Err("load failed".to_string()));
 
-        // Dismiss the UpdateDone overlay (failure path consumes pending_data)
         let event = Event::Key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
         app.handle_update_event(event);
 
         assert_eq!(app.update_status, UpdateStatus::Resolved);
         assert!(app.pending_data.is_none());
-        // Error result should have been applied → Error state with correct message
         match &app.state {
             AppState::Error { message } => assert_eq!(message, "load failed"),
             other => panic!(
@@ -1320,20 +1450,18 @@ mod tests {
     #[test]
     fn test_quit_confirm_default_is_yes() {
         let mut app = App::default();
-        // Use Ctrl+C to trigger quit confirmation
         app.handle_event(Event::Key(KeyEvent::new(
             KeyCode::Char('c'),
             KeyModifiers::CONTROL,
         )));
 
-        // Default selection should be Yes (0)
         assert_eq!(app.quit_confirm.as_ref().unwrap().selection, 0);
     }
 
     #[test]
     fn test_quit_confirm_yes_quits() {
         let mut app = App {
-            quit_confirm: Some(QuitConfirmState { selection: 0 }), // Yes selected
+            quit_confirm: Some(QuitConfirmState { selection: 0 }),
             ..App::default()
         };
 
@@ -1347,7 +1475,7 @@ mod tests {
     #[test]
     fn test_quit_confirm_no_cancels() {
         let mut app = App {
-            quit_confirm: Some(QuitConfirmState { selection: 1 }), // No selected
+            quit_confirm: Some(QuitConfirmState { selection: 1 }),
             ..App::default()
         };
 
@@ -1361,7 +1489,7 @@ mod tests {
     #[test]
     fn test_quit_confirm_esc_cancels() {
         let mut app = App {
-            quit_confirm: Some(QuitConfirmState { selection: 0 }), // Yes selected
+            quit_confirm: Some(QuitConfirmState { selection: 0 }),
             ..App::default()
         };
 
@@ -1389,11 +1517,10 @@ mod tests {
     #[test]
     fn test_quit_confirm_y_key_quits() {
         let mut app = App {
-            quit_confirm: Some(QuitConfirmState { selection: 1 }), // No selected
+            quit_confirm: Some(QuitConfirmState { selection: 1 }),
             ..App::default()
         };
 
-        // 'y' should quit immediately regardless of selection
         let event = Event::Key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
         app.handle_quit_confirm_event(event);
 
@@ -1404,21 +1531,18 @@ mod tests {
     #[test]
     fn test_quit_confirm_arrow_toggles() {
         let mut app = App {
-            quit_confirm: Some(QuitConfirmState { selection: 1 }), // No selected
+            quit_confirm: Some(QuitConfirmState { selection: 1 }),
             ..App::default()
         };
 
-        // Left arrow toggles to Yes
         let event = Event::Key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
         app.handle_quit_confirm_event(event);
         assert_eq!(app.quit_confirm.as_ref().unwrap().selection, 0);
 
-        // Right arrow toggles back to No
         let event = Event::Key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
         app.handle_quit_confirm_event(event);
         assert_eq!(app.quit_confirm.as_ref().unwrap().selection, 1);
 
-        // Up/Down also toggle
         let event = Event::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
         app.handle_quit_confirm_event(event);
         assert_eq!(app.quit_confirm.as_ref().unwrap().selection, 0);
@@ -1439,12 +1563,10 @@ mod tests {
             ..App::default()
         };
 
-        // 'y' in quit_confirm should quit, not interact with update overlay
         let event = Event::Key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
         app.handle_quit_confirm_event(event);
 
         assert!(app.should_quit());
-        // Update status should be unchanged
         assert!(matches!(app.update_status, UpdateStatus::Available { .. }));
     }
 
@@ -1460,42 +1582,6 @@ mod tests {
     fn test_app_new_has_no_model_breakdown() {
         let app = App::new(TuiConfig::default(), Theme::Dark);
         assert!(app.model_breakdown.is_none());
-    }
-
-    #[test]
-    fn test_enter_without_selection_does_nothing() {
-        let mut app = make_ready_app();
-        app.current_tab = Tab::Daily;
-        // No selection
-        assert!(app.daily_selected.is_none());
-
-        // Press Enter
-        app.handle_event(Event::Key(KeyEvent::new(
-            KeyCode::Enter,
-            KeyModifiers::NONE,
-        )));
-
-        // Should not open model breakdown
-        assert!(app.model_breakdown.is_none());
-    }
-
-    #[test]
-    fn test_enter_with_selection_opens_popup() {
-        let mut app = make_ready_app_with_models();
-        app.current_tab = Tab::Daily;
-
-        // Select a row first
-        app.handle_event(Event::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)));
-        assert!(app.daily_selected.is_some());
-
-        // Press Enter
-        app.handle_event(Event::Key(KeyEvent::new(
-            KeyCode::Enter,
-            KeyModifiers::NONE,
-        )));
-
-        // Should open model breakdown
-        assert!(app.model_breakdown.is_some());
     }
 
     #[test]
@@ -1544,110 +1630,103 @@ mod tests {
     }
 
     #[test]
-    fn test_selection_starts_from_bottom() {
-        let mut app = make_ready_app();
-        app.current_tab = Tab::Daily;
-
-        // First selection should be at the bottom (most recent date)
-        app.handle_event(Event::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)));
-
-        // Should select last index (20 items, index 19)
-        assert_eq!(app.daily_selected, Some(19));
-    }
-
-    #[test]
-    fn test_selection_down_from_none_starts_from_bottom() {
-        let mut app = make_ready_app();
-        app.current_tab = Tab::Daily;
-
-        // Down should also start from bottom
-        app.handle_event(Event::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)));
-
-        assert_eq!(app.daily_selected, Some(19));
-    }
-
-    #[test]
-    fn test_selection_wraps_at_boundaries() {
-        let mut app = make_ready_app();
-        app.current_tab = Tab::Daily;
-        app.daily_selected = Some(0);
-
-        // Up at index 0 should stay at 0
-        app.handle_event(Event::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)));
-        assert_eq!(app.daily_selected, Some(0));
-    }
-
-    #[test]
     fn test_selection_adjusts_scroll() {
         let mut app = make_ready_app();
-        app.current_tab = Tab::Daily;
-        // Set selection above visible area
+        app.view_mode = ViewMode::SourceDetail {
+            source: "claude".to_string(),
+        };
         app.daily_scroll = 10;
         app.daily_selected = Some(5);
 
-        // Adjust scroll should bring selection into view
         app.adjust_scroll_for_selection();
         assert_eq!(app.daily_scroll, 5);
     }
 
-    /// Helper to create a ready app with model data in summaries
-    fn make_ready_app_with_models() -> App {
-        use crate::types::{DailySummary, ModelUsage};
-        use chrono::NaiveDate;
+    // ========== Tab switching tests ==========
 
-        let summaries: Vec<DailySummary> = (1..=20)
-            .map(|d| {
-                let mut models = HashMap::new();
-                models.insert(
-                    "claude-sonnet-4-20250514".to_string(),
-                    ModelUsage {
-                        input_tokens: 100,
-                        output_tokens: 50,
-                        cache_read_tokens: 0,
-                        cache_creation_tokens: 0,
-                        thinking_tokens: 0,
-                        cost_usd: 0.01,
-                        count: 1,
-                    },
-                );
-                DailySummary {
-                    date: NaiveDate::from_ymd_opt(2025, 1, d).unwrap(),
-                    total_input_tokens: 100,
-                    total_output_tokens: 50,
-                    total_cache_read_tokens: 0,
-                    total_cache_creation_tokens: 0,
-                    total_thinking_tokens: 0,
-                    total_cost_usd: 0.01,
-                    models,
-                }
-            })
-            .collect();
-
-        let daily_tokens: Vec<(NaiveDate, u64)> = summaries.iter().map(|d| (d.date, 150)).collect();
-
-        let daily_data = DailyData::from_daily_summaries(summaries.clone());
-        let stats_data = crate::types::StatsData::from_daily_summaries(&summaries);
-        let models_data = super::ModelsData::from_model_usage(&HashMap::new());
-
+    #[test]
+    fn test_tab_key_switches_tab() {
         let mut app = App::default();
-        let daily_scroll = DailyView::max_scroll_offset(&daily_data, DailyViewMode::Daily);
-        let weekly_scroll = DailyView::max_scroll_offset(&daily_data, DailyViewMode::Weekly);
-        let monthly_scroll = DailyView::max_scroll_offset(&daily_data, DailyViewMode::Monthly);
+        assert!(matches!(
+            app.view_mode,
+            ViewMode::Dashboard { tab: Tab::Overview }
+        ));
 
-        app.state = AppState::Ready {
-            data: Box::new(AppData {
-                total: crate::types::TotalSummary::default(),
-                daily_tokens,
-                models_data,
-                daily_data,
-                stats_data,
-                source_usage: vec![],
-                cache_warning: None,
-            }),
+        app.handle_event(Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)));
+        assert!(matches!(
+            app.view_mode,
+            ViewMode::Dashboard { tab: Tab::Stats }
+        ));
+
+        app.handle_event(Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)));
+        assert!(matches!(
+            app.view_mode,
+            ViewMode::Dashboard { tab: Tab::Models }
+        ));
+
+        app.handle_event(Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)));
+        assert!(matches!(
+            app.view_mode,
+            ViewMode::Dashboard { tab: Tab::Overview }
+        ));
+    }
+
+    #[test]
+    fn test_backtab_switches_tab() {
+        let mut app = App::default();
+
+        app.handle_event(Event::Key(KeyEvent::new(
+            KeyCode::BackTab,
+            KeyModifiers::SHIFT,
+        )));
+        assert!(matches!(
+            app.view_mode,
+            ViewMode::Dashboard { tab: Tab::Models }
+        ));
+    }
+
+    #[test]
+    fn test_number_keys_switch_tab() {
+        let mut app = App::default();
+
+        app.handle_event(Event::Key(KeyEvent::new(
+            KeyCode::Char('2'),
+            KeyModifiers::NONE,
+        )));
+        assert!(matches!(
+            app.view_mode,
+            ViewMode::Dashboard { tab: Tab::Stats }
+        ));
+
+        app.handle_event(Event::Key(KeyEvent::new(
+            KeyCode::Char('3'),
+            KeyModifiers::NONE,
+        )));
+        assert!(matches!(
+            app.view_mode,
+            ViewMode::Dashboard { tab: Tab::Models }
+        ));
+
+        app.handle_event(Event::Key(KeyEvent::new(
+            KeyCode::Char('1'),
+            KeyModifiers::NONE,
+        )));
+        assert!(matches!(
+            app.view_mode,
+            ViewMode::Dashboard { tab: Tab::Overview }
+        ));
+    }
+
+    #[test]
+    fn test_initial_tab_config() {
+        let config = TuiConfig {
+            initial_view_mode: DailyViewMode::Daily,
+            initial_tab: Some(Tab::Stats),
         };
-        app.daily_scroll = daily_scroll;
-        app.weekly_scroll = weekly_scroll;
-        app.monthly_scroll = monthly_scroll;
-        app
+        let app = App::new(config, Theme::Dark);
+        assert!(matches!(
+            app.view_mode,
+            ViewMode::Dashboard { tab: Tab::Stats }
+        ));
     }
 }

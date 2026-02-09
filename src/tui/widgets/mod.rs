@@ -8,6 +8,7 @@ pub mod model_breakdown;
 pub mod models;
 pub mod overview;
 pub mod quit_confirm;
+pub mod source_detail;
 pub mod spinner;
 pub mod stats;
 pub mod tabs;

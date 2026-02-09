@@ -9,7 +9,6 @@ use ratatui::{
 };
 
 use super::overview::format_number;
-use super::tabs::{Tab, TabBar};
 use crate::services::{display_name, Aggregator};
 use crate::tui::theme::{spike_level, Theme};
 use crate::types::DailySummary;
@@ -147,7 +146,7 @@ const COLUMNS: [(&str, u16); 8] = [
 /// Determine which column indices are visible for a given terminal width.
 /// Columns are hidden in priority order: Input first, then Output, Cache, Usage.
 /// This prioritizes showing Usage (visual bar) in narrow views.
-fn visible_columns(width: u16) -> Vec<usize> {
+pub fn visible_columns(width: u16) -> Vec<usize> {
     // Ordered by hide priority: first element is hidden first
     const HIDE_ORDER: [usize; 4] = [COL_INPUT, COL_OUTPUT, COL_CACHE, COL_USAGE];
 
@@ -174,7 +173,6 @@ pub struct DailyView<'a> {
     data: &'a DailyData,
     scroll_offset: usize,
     selected_index: Option<usize>,
-    selected_tab: Tab,
     view_mode: DailyViewMode,
     theme: Theme,
     avg_cost: f64,
@@ -192,16 +190,10 @@ impl<'a> DailyView<'a> {
             data,
             scroll_offset,
             selected_index: None,
-            selected_tab: Tab::Daily,
             view_mode,
             theme,
             avg_cost,
         }
-    }
-
-    pub fn with_tab(mut self, tab: Tab) -> Self {
-        self.selected_tab = tab;
-        self
     }
 
     pub fn with_selected_index(mut self, selected_index: Option<usize>) -> Self {
@@ -248,10 +240,7 @@ impl Widget for DailyView<'_> {
         ])
         .split(centered_area);
 
-        // Render tabs
-        self.render_tabs(chunks[1], buf);
-
-        // Render separator
+        // Render separator (no tabs, just separator at line 1 position too)
         self.render_separator(chunks[2], buf);
 
         // Render mode indicator
@@ -275,11 +264,6 @@ impl DailyView<'_> {
     /// Calculate horizontal offset to center the table
     fn calculate_table_offset(area_width: u16, tw: u16) -> u16 {
         area_width.saturating_sub(tw) / 2
-    }
-
-    fn render_tabs(&self, area: Rect, buf: &mut Buffer) {
-        let tab_bar = TabBar::new(self.selected_tab, self.theme);
-        tab_bar.render(area, buf);
     }
 
     fn render_separator(&self, area: Rect, buf: &mut Buffer) {
@@ -319,7 +303,7 @@ impl DailyView<'_> {
         indicator.render(area, buf);
     }
 
-    fn render_header(&self, area: Rect, buf: &mut Buffer, visible: &[usize]) {
+    pub fn render_header(&self, area: Rect, buf: &mut Buffer, visible: &[usize]) {
         let tw = table_width_for(visible);
         let offset = Self::calculate_table_offset(area.width, tw);
         let date_label = self.view_mode.date_column_label();
@@ -355,7 +339,7 @@ impl DailyView<'_> {
         );
     }
 
-    fn render_daily_rows(&self, area: Rect, buf: &mut Buffer, visible: &[usize]) {
+    pub fn render_daily_rows(&self, area: Rect, buf: &mut Buffer, visible: &[usize]) {
         let tw = table_width_for(visible);
         let offset = Self::calculate_table_offset(area.width, tw);
         let (summaries, max_tokens) = self.data.for_mode(self.view_mode);
