@@ -4,7 +4,6 @@
   "packages": {
     ".": {
       "release-type": "rust",
-      "release-as": "1.0.0",
       "extra-files": [
         {
           "type": "json",
