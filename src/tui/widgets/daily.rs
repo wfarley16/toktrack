@@ -108,17 +108,19 @@ impl DailyData {
         }
     }
 
-    /// Calculate maximum scroll offset for a given item count
-    pub fn max_scroll_offset_for(count: usize) -> usize {
-        count.saturating_sub(VISIBLE_ROWS)
+    /// Calculate maximum scroll offset for a given item count and visible rows
+    pub fn max_scroll_offset_for(count: usize, visible_rows: usize) -> usize {
+        count.saturating_sub(visible_rows)
     }
 }
 
 /// Maximum content width for Daily view (consistent with Overview/Models)
 const MAX_CONTENT_WIDTH: u16 = 170;
 
-/// Visible rows for scrolling (excluding header)
-pub const VISIBLE_ROWS: usize = 15;
+/// Default visible rows for scrolling tests.
+/// Actual visible rows are computed dynamically from terminal height.
+#[cfg(test)]
+const VISIBLE_ROWS: usize = 15;
 
 /// Column index constants for clarity
 const COL_DATE: usize = 0;
@@ -201,10 +203,10 @@ impl<'a> DailyView<'a> {
         self
     }
 
-    /// Calculate the maximum valid scroll offset for the given mode
-    pub fn max_scroll_offset(data: &DailyData, mode: DailyViewMode) -> usize {
+    /// Calculate the maximum valid scroll offset for the given mode and visible rows
+    pub fn max_scroll_offset(data: &DailyData, mode: DailyViewMode, visible_rows: usize) -> usize {
         let (summaries, _) = data.for_mode(mode);
-        DailyData::max_scroll_offset_for(summaries.len())
+        DailyData::max_scroll_offset_for(summaries.len(), visible_rows)
     }
 }
 
@@ -223,20 +225,16 @@ impl Widget for DailyView<'_> {
         // Determine visible columns based on available width
         let visible = visible_columns(centered_area.width);
 
-        let (summaries, _) = self.data.for_mode(self.view_mode);
-
         // Calculate layout
-        let visible_rows = summaries.len().min(VISIBLE_ROWS) as u16;
         let chunks = Layout::vertical([
-            Constraint::Length(1),            // Top padding
-            Constraint::Length(1),            // Tabs
-            Constraint::Length(1),            // Separator
-            Constraint::Length(1),            // Mode indicator
-            Constraint::Length(1),            // Header
-            Constraint::Length(visible_rows), // Daily rows
-            Constraint::Length(1),            // Separator
-            Constraint::Length(1),            // Keybindings
-            Constraint::Min(0),               // Remaining space
+            Constraint::Length(1), // Top padding
+            Constraint::Length(1), // Tabs
+            Constraint::Length(1), // Separator
+            Constraint::Length(1), // Mode indicator
+            Constraint::Length(1), // Header
+            Constraint::Fill(1),   // Daily rows (fill remaining)
+            Constraint::Length(1), // Separator
+            Constraint::Length(1), // Keybindings
         ])
         .split(centered_area);
 
@@ -681,7 +679,10 @@ mod tests {
     #[test]
     fn test_daily_view_scroll_bounds_empty() {
         let data = DailyData::from_daily_summaries(vec![]);
-        assert_eq!(DailyView::max_scroll_offset(&data, DailyViewMode::Daily), 0);
+        assert_eq!(
+            DailyView::max_scroll_offset(&data, DailyViewMode::Daily, VISIBLE_ROWS),
+            0
+        );
     }
 
     #[test]
@@ -692,7 +693,10 @@ mod tests {
         ];
         let data = DailyData::from_daily_summaries(summaries);
         // 2 items < VISIBLE_ROWS (15), so max offset is 0
-        assert_eq!(DailyView::max_scroll_offset(&data, DailyViewMode::Daily), 0);
+        assert_eq!(
+            DailyView::max_scroll_offset(&data, DailyViewMode::Daily, VISIBLE_ROWS),
+            0
+        );
     }
 
     #[test]
@@ -702,7 +706,10 @@ mod tests {
             .collect();
         let data = DailyData::from_daily_summaries(summaries);
         // 20 items, VISIBLE_ROWS = 15, so max offset = 5
-        assert_eq!(DailyView::max_scroll_offset(&data, DailyViewMode::Daily), 5);
+        assert_eq!(
+            DailyView::max_scroll_offset(&data, DailyViewMode::Daily, VISIBLE_ROWS),
+            5
+        );
     }
 
     // ========== DailyData multi-mode tests ==========

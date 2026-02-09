@@ -1,4 +1,4 @@
-//! Source detail view - displays per-source daily + models breakdown
+//! Source detail view - displays per-source daily breakdown
 
 use ratatui::{
     buffer::Buffer,
@@ -8,8 +8,7 @@ use ratatui::{
     widgets::{Paragraph, Widget},
 };
 
-use super::daily::{DailyData, DailyView, DailyViewMode, VISIBLE_ROWS};
-use super::models::{ModelsData, ModelsView};
+use super::daily::{DailyData, DailyView, DailyViewMode};
 use super::overview::format_number;
 use crate::tui::theme::Theme;
 use crate::types::StatsData;
@@ -17,11 +16,10 @@ use crate::types::StatsData;
 /// Maximum content width (consistent with other views)
 const MAX_CONTENT_WIDTH: u16 = 170;
 
-/// Source detail view combining daily table + models table for a single source
+/// Source detail view combining daily table for a single source
 pub struct SourceDetailView<'a> {
     source_name: &'a str,
     daily_data: &'a DailyData,
-    models_data: &'a ModelsData,
     stats_data: &'a StatsData,
     scroll_offset: usize,
     view_mode: DailyViewMode,
@@ -30,11 +28,9 @@ pub struct SourceDetailView<'a> {
 }
 
 impl<'a> SourceDetailView<'a> {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         source_name: &'a str,
         daily_data: &'a DailyData,
-        models_data: &'a ModelsData,
         stats_data: &'a StatsData,
         scroll_offset: usize,
         view_mode: DailyViewMode,
@@ -44,7 +40,6 @@ impl<'a> SourceDetailView<'a> {
         Self {
             source_name,
             daily_data,
-            models_data,
             stats_data,
             scroll_offset,
             view_mode,
@@ -65,24 +60,16 @@ impl Widget for SourceDetailView<'_> {
             height: area.height,
         };
 
-        let (summaries, _) = self.daily_data.for_mode(self.view_mode);
-        let daily_rows = summaries.len().min(VISIBLE_ROWS) as u16;
-        let model_rows = self.models_data.models.len().min(5) as u16;
-
         let chunks = Layout::vertical([
-            Constraint::Length(1),          // 0: Top padding
-            Constraint::Length(1),          // 1: Source header
-            Constraint::Length(1),          // 2: Stats inline
-            Constraint::Length(1),          // 3: Separator
-            Constraint::Length(1),          // 4: Mode indicator
-            Constraint::Length(1),          // 5: Daily table header
-            Constraint::Length(daily_rows), // 6: Daily rows
-            Constraint::Length(1),          // 7: Separator
-            Constraint::Length(1),          // 8: Models header
-            Constraint::Length(model_rows), // 9: Models rows
-            Constraint::Length(1),          // 10: Separator
-            Constraint::Length(1),          // 11: Keybindings
-            Constraint::Min(0),             // 12: Remaining
+            Constraint::Length(1), // 0: Top padding
+            Constraint::Length(1), // 1: Source header
+            Constraint::Length(1), // 2: Stats inline
+            Constraint::Length(1), // 3: Separator
+            Constraint::Length(1), // 4: Mode indicator
+            Constraint::Length(1), // 5: Daily table header
+            Constraint::Fill(1),   // 6: Daily rows (fill remaining)
+            Constraint::Length(1), // 7: Separator
+            Constraint::Length(1), // 8: Keybindings
         ])
         .split(centered_area);
 
@@ -105,13 +92,7 @@ impl Widget for SourceDetailView<'_> {
         daily_view.render_daily_rows(chunks[6], buf, &daily_view_visible_columns(chunks[6].width));
 
         self.render_separator(chunks[7], buf);
-
-        // Models section
-        self.render_models_header(chunks[8], buf);
-        self.render_models_rows(chunks[9], buf);
-
-        self.render_separator(chunks[10], buf);
-        self.render_keybindings(chunks[11], buf);
+        self.render_keybindings(chunks[8], buf);
     }
 }
 
@@ -208,23 +189,6 @@ impl SourceDetailView<'_> {
 
         let indicator = Paragraph::new(Line::from(spans)).alignment(Alignment::Center);
         indicator.render(area, buf);
-    }
-
-    fn render_models_header(&self, area: Rect, buf: &mut Buffer) {
-        let header = Paragraph::new(Line::from(Span::styled(
-            "Models",
-            Style::default()
-                .fg(self.theme.text())
-                .add_modifier(Modifier::BOLD),
-        )))
-        .alignment(Alignment::Center);
-
-        header.render(area, buf);
-    }
-
-    fn render_models_rows(&self, area: Rect, buf: &mut Buffer) {
-        let models_view = ModelsView::new(self.models_data, self.theme);
-        models_view.render_models(area, buf);
     }
 
     fn render_keybindings(&self, area: Rect, buf: &mut Buffer) {

@@ -76,6 +76,7 @@ pub struct AppData {
     /// Per-source daily data
     pub source_daily_data: HashMap<String, DailyData>,
     /// Per-source models data
+    #[allow(dead_code)] // Reserved for future per-source models view
     pub source_models_data: HashMap<String, ModelsData>,
     /// Per-source stats data
     pub source_stats_data: HashMap<String, StatsData>,
@@ -134,6 +135,7 @@ pub struct App {
     theme: Theme,
     quit_confirm: Option<QuitConfirmState>,
     model_breakdown: Option<ModelBreakdownState>,
+    terminal_height: u16,
 }
 
 impl App {
@@ -163,7 +165,19 @@ impl App {
             theme,
             quit_confirm: None,
             model_breakdown: None,
+            terminal_height: 24,
         }
+    }
+
+    /// Calculate the effective number of visible rows based on the current view and terminal height.
+    /// SourceDetail fixed overhead: padding(1) + header(1) + stats(1) + sep(1) + mode(1) + header(1) + sep(1) + keybindings(1) = 8
+    /// Dashboard fixed overhead: padding(1) + tabs(1) + sep(1) + mode(1) + header(1) + sep(1) + keybindings(1) = 7
+    fn effective_visible_rows(&self) -> usize {
+        let overhead: u16 = match &self.view_mode {
+            ViewMode::SourceDetail { .. } => 8,
+            ViewMode::Dashboard { .. } => 7,
+        };
+        self.terminal_height.saturating_sub(overhead) as usize
     }
 
     /// Get scroll offset for the current daily view mode
@@ -202,8 +216,12 @@ impl App {
         }
     }
 
-    /// Handle keyboard events
+    /// Handle keyboard and resize events
     pub fn handle_event(&mut self, event: Event) {
+        if let Event::Resize(_, h) = event {
+            self.terminal_height = h;
+            return;
+        }
         if let Event::Key(key) = event {
             if key.kind == KeyEventKind::Press {
                 // Ctrl+C shows quit confirmation
@@ -309,17 +327,21 @@ impl App {
                             self.monthly_selected = None;
                             // Set scroll to bottom for the source's daily data
                             if let Some(source_daily) = data.source_daily_data.get(&source.source) {
+                                let vr = self.effective_visible_rows();
                                 self.daily_scroll = DailyView::max_scroll_offset(
                                     source_daily,
                                     DailyViewMode::Daily,
+                                    vr,
                                 );
                                 self.weekly_scroll = DailyView::max_scroll_offset(
                                     source_daily,
                                     DailyViewMode::Weekly,
+                                    vr,
                                 );
                                 self.monthly_scroll = DailyView::max_scroll_offset(
                                     source_daily,
                                     DailyViewMode::Monthly,
+                                    vr,
                                 );
                             }
                         }
@@ -466,12 +488,13 @@ impl App {
     fn apply_data_result(&mut self, result: Result<Box<AppData>, String>) {
         match result {
             Ok(data) => {
+                let vr = self.effective_visible_rows();
                 self.daily_scroll =
-                    DailyView::max_scroll_offset(&data.daily_data, DailyViewMode::Daily);
+                    DailyView::max_scroll_offset(&data.daily_data, DailyViewMode::Daily, vr);
                 self.weekly_scroll =
-                    DailyView::max_scroll_offset(&data.daily_data, DailyViewMode::Weekly);
+                    DailyView::max_scroll_offset(&data.daily_data, DailyViewMode::Weekly, vr);
                 self.monthly_scroll =
-                    DailyView::max_scroll_offset(&data.daily_data, DailyViewMode::Monthly);
+                    DailyView::max_scroll_offset(&data.daily_data, DailyViewMode::Monthly, vr);
                 self.state = AppState::Ready { data };
             }
             Err(message) => self.state = AppState::Error { message },
@@ -553,7 +576,7 @@ impl App {
 
     /// Adjust scroll offset to keep the current selection visible
     fn adjust_scroll_for_selection(&mut self) {
-        use super::widgets::daily::VISIBLE_ROWS;
+        let visible_rows = self.effective_visible_rows();
 
         let selected = match self.active_selected() {
             Some(idx) => idx,
@@ -564,8 +587,8 @@ impl App {
 
         if selected < scroll {
             *self.active_scroll_mut() = selected;
-        } else if selected >= scroll + VISIBLE_ROWS {
-            *self.active_scroll_mut() = selected.saturating_sub(VISIBLE_ROWS - 1);
+        } else if selected >= scroll + visible_rows {
+            *self.active_scroll_mut() = selected.saturating_sub(visible_rows - 1);
         }
     }
 
@@ -676,10 +699,6 @@ impl Widget for &App {
                             .source_daily_data
                             .get(source)
                             .unwrap_or(&data.daily_data);
-                        let models_data = data
-                            .source_models_data
-                            .get(source)
-                            .unwrap_or(&data.models_data);
                         let stats_data = data
                             .source_stats_data
                             .get(source)
@@ -687,7 +706,6 @@ impl Widget for &App {
                         let source_detail = SourceDetailView::new(
                             source,
                             daily_data,
-                            models_data,
                             stats_data,
                             self.active_scroll(),
                             self.daily_view_mode,
@@ -843,6 +861,7 @@ fn build_app_data_from_summaries(
 
 fn run_app(terminal: &mut DefaultTerminal, config: TuiConfig, theme: Theme) -> anyhow::Result<()> {
     let mut app = App::new(config, theme);
+    app.terminal_height = terminal.size()?.height;
 
     // Spawn background thread for data loading
     let (data_tx, data_rx) = mpsc::channel();
@@ -976,9 +995,10 @@ mod tests {
         let models_data = super::ModelsData::from_model_usage(&HashMap::new());
 
         let mut app = App::default();
-        let daily_scroll = DailyView::max_scroll_offset(&daily_data, DailyViewMode::Daily);
-        let weekly_scroll = DailyView::max_scroll_offset(&daily_data, DailyViewMode::Weekly);
-        let monthly_scroll = DailyView::max_scroll_offset(&daily_data, DailyViewMode::Monthly);
+        let vr = app.effective_visible_rows();
+        let daily_scroll = DailyView::max_scroll_offset(&daily_data, DailyViewMode::Daily, vr);
+        let weekly_scroll = DailyView::max_scroll_offset(&daily_data, DailyViewMode::Weekly, vr);
+        let monthly_scroll = DailyView::max_scroll_offset(&daily_data, DailyViewMode::Monthly, vr);
 
         app.state = AppState::Ready {
             data: Box::new(AppData {
