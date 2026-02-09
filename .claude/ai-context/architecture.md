@@ -56,7 +56,7 @@ trait CLIParser: Send + Sync {
 ```
 [Warm Path] cache exists:
 1. PricingService::from_cache_only()    → no network
-2. parse_recent_files(24h)              → mtime filter
+2. parse_recent_files(yesterday 00:00)   → mtime filter
 3. cache.load_or_compute(entries)       → cached past + fresh today
 4. Aggregator::total_from_daily()       → no raw entries needed
 5. Aggregator::by_model_from_daily()    → no raw entries needed
