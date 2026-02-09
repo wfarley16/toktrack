@@ -11,7 +11,7 @@ use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::PathBuf;
 
 /// Normalize model name keys in a HashMap, merging duplicates.
@@ -74,6 +74,10 @@ impl DailySummaryCacheService {
 
     pub fn cache_path(&self, cli: &str) -> PathBuf {
         self.cache_dir.join(format!("{}_daily.json", cli))
+    }
+
+    fn lock_path(&self, cli: &str) -> PathBuf {
+        self.cache_dir.join(format!("{}_daily.json.lock", cli))
     }
 
     /// Check if cached version matches current CACHE_VERSION.
@@ -142,6 +146,10 @@ impl DailySummaryCacheService {
         if path.exists() {
             fs::remove_file(&path)?;
         }
+        let lock = self.lock_path(cli);
+        if lock.exists() {
+            fs::remove_file(&lock)?;
+        }
         Ok(())
     }
 
@@ -157,46 +165,40 @@ impl DailySummaryCacheService {
             return (Vec::new(), None);
         }
 
-        let file = match File::open(&path) {
-            Ok(f) => f,
+        // Lock on separate .lock file for cross-process synchronization.
+        // If lock file can't be opened, proceed without lock (backward compat).
+        let lock_path = self.lock_path(cli);
+        let lock_file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&lock_path);
+        if let Ok(ref lf) = lock_file {
+            let _ = lf.lock_shared();
+        }
+
+        let content = match fs::read_to_string(&path) {
+            Ok(c) => c,
             Err(e) => {
+                if let Ok(ref lf) = lock_file {
+                    let _ = lf.unlock();
+                }
                 return (
                     Vec::new(),
                     Some(CacheWarning::LoadFailed(format!(
-                        "Failed to open cache: {}",
+                        "Failed to read cache: {}",
                         e
                     ))),
                 );
             }
         };
 
-        if let Err(e) = file.lock_shared() {
-            return (
-                Vec::new(),
-                Some(CacheWarning::LoadFailed(format!(
-                    "Failed to acquire read lock: {}",
-                    e
-                ))),
-            );
-        }
-
-        let mut content = String::new();
-        let mut reader = std::io::BufReader::new(&file);
-        if let Err(e) = reader.read_to_string(&mut content) {
-            let _ = file.unlock();
-            return (
-                Vec::new(),
-                Some(CacheWarning::LoadFailed(format!(
-                    "Failed to read cache: {}",
-                    e
-                ))),
-            );
-        }
-
         let cache: DailySummaryCache = match serde_json::from_str(&content) {
             Ok(c) => c,
             Err(e) => {
-                let _ = file.unlock();
+                if let Ok(ref lf) = lock_file {
+                    let _ = lf.unlock();
+                }
                 return (
                     Vec::new(),
                     Some(CacheWarning::Corrupted(format!(
@@ -216,7 +218,9 @@ impl DailySummaryCacheService {
             None
         };
 
-        let _ = file.unlock();
+        if let Ok(ref lf) = lock_file {
+            let _ = lf.unlock();
+        }
 
         // Migrate model names: normalize keys in the models HashMap
         let summaries: Vec<DailySummary> = cache
@@ -249,6 +253,17 @@ impl DailySummaryCacheService {
         let path = self.cache_path(cli);
         let temp_path = path.with_extension("json.tmp");
 
+        let lock_path = self.lock_path(cli);
+        let lock_file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&lock_path)
+            .map_err(|e| ToktrackError::Cache(format!("Failed to open lock file: {}", e)))?;
+        lock_file
+            .lock_exclusive()
+            .map_err(|e| ToktrackError::Cache(format!("Failed to acquire write lock: {}", e)))?;
+
         {
             let mut file = File::create(&temp_path)
                 .map_err(|e| ToktrackError::Cache(format!("Failed to create temp file: {}", e)))?;
@@ -258,20 +273,10 @@ impl DailySummaryCacheService {
                 .map_err(|e| ToktrackError::Cache(format!("Failed to sync temp file: {}", e)))?;
         }
 
-        let target = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(&path)?;
-
-        target
-            .lock_exclusive()
-            .map_err(|e| ToktrackError::Cache(format!("Failed to acquire write lock: {}", e)))?;
-
         fs::rename(&temp_path, &path)
             .map_err(|e| ToktrackError::Cache(format!("Failed to rename temp file: {}", e)))?;
 
-        let _ = target.unlock();
+        let _ = lock_file.unlock();
         Ok(())
     }
 }
