@@ -20,10 +20,19 @@ use crate::types::{CacheWarning, DailySummary, Result, SourceUsage, ToktrackErro
 fn warm_path_since() -> SystemTime {
     let yesterday = Local::now().date_naive() - chrono::Duration::days(1);
     let yesterday_midnight = yesterday.and_hms_opt(0, 0, 0).unwrap();
-    let utc = Local
-        .from_local_datetime(&yesterday_midnight)
-        .unwrap()
-        .to_utc();
+    let utc = match Local.from_local_datetime(&yesterday_midnight) {
+        chrono::LocalResult::Single(dt) => dt.to_utc(),
+        chrono::LocalResult::Ambiguous(earlier, _) => earlier.to_utc(),
+        chrono::LocalResult::None => {
+            // DST spring-forward: midnight doesn't exist, use 01:00
+            let fallback = yesterday.and_hms_opt(1, 0, 0).unwrap();
+            Local
+                .from_local_datetime(&fallback)
+                .earliest()
+                .expect("01:00 should always exist after spring-forward")
+                .to_utc()
+        }
+    };
     SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(utc.timestamp() as u64)
 }
 
@@ -409,6 +418,7 @@ mod tests {
         let yesterday_midnight = yesterday.and_hms_opt(0, 0, 0).unwrap();
         let expected_utc = chrono::Local
             .from_local_datetime(&yesterday_midnight)
+            .earliest()
             .unwrap()
             .to_utc();
         let expected_secs = expected_utc.timestamp();
