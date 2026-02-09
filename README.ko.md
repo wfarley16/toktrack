@@ -37,7 +37,7 @@ toktrack (캐시):      ▏ ~0.04초 (일상 사용)
 ## 주요 기능
 
 - **초고속 파싱** — simd-json + rayon 병렬 처리 (~3 GiB/s 처리량)
-- **TUI 대시보드** — 4개 뷰 (Overview, Models, Daily, Stats), 일별/주별/월별 집계
+- **TUI 대시보드** — 3개 탭 (Overview, Stats, Models), 일별/주별/월별 뷰
 - **CLI 명령어** — `daily`, `weekly`, `monthly`, `stats` (JSON 출력 지원)
 - **멀티 CLI 지원** — Claude Code, Codex CLI, Gemini CLI, OpenCode 한 곳에서
 - **데이터 보존** — CLI 데이터 삭제 후에도 비용 기록 유지
@@ -95,9 +95,9 @@ toktrack
 
 ```bash
 # 특정 탭으로 TUI 열기
-toktrack daily     # Daily 탭 (일별 보기)
-toktrack weekly    # Daily 탭 (주별 보기)
-toktrack monthly   # Daily 탭 (월별 보기)
+toktrack daily     # Overview (일별 보기)
+toktrack weekly    # Overview (주별 보기)
+toktrack monthly   # Overview (월별 보기)
 toktrack stats     # Stats 탭
 
 # JSON 출력 (스크립팅용)
@@ -111,13 +111,13 @@ toktrack stats --json
 
 | 키 | 동작 |
 |-----|--------|
-| `1-4` | 탭 직접 전환 |
+| `1-3` | 탭 직접 전환 |
 | `Tab` / `Shift+Tab` | 다음 / 이전 탭 |
 | `j` / `k` 또는 `↑` / `↓` | 위 / 아래 스크롤 |
 | `Enter` | 모델 상세 팝업 열기 (Daily 탭) |
 | `d` / `w` / `m` | 일별 / 주별 / 월별 보기 (Daily 탭) |
 | `?` | 도움말 토글 |
-| `q` | 종료 |
+| `Ctrl+C` | 종료 |
 
 ## 지원하는 AI CLI
 
@@ -126,7 +126,7 @@ toktrack stats --json
 | Claude Code | ✅ | `~/.claude/projects/` |
 | Codex CLI | ✅ | `~/.codex/sessions/` |
 | Gemini CLI | ✅ | `~/.gemini/tmp/*/chats/` |
-| OpenCode | ✅ | `~/.local/share/opencode/storage/` |
+| OpenCode | ✅ | `~/.local/share/opencode/storage/message/` |
 
 ## 성능
 
@@ -191,7 +191,7 @@ rm -rf ~/.toktrack/cache/
 
 **콜드 경로** (첫 실행): 전체 glob 스캔 → 병렬 SIMD 파싱 → 캐시 구축 → 집계.
 
-**웜 경로** (캐시 있음): 캐시된 요약 로드 → 최근 파일만 파싱 (24시간 mtime 필터) → 병합 → 집계.
+**웜 경로** (캐시 있음): 캐시된 요약 로드 → 최근 파일만 파싱 (어제 자정 mtime 필터) → 병합 → 집계.
 
 > **Deep Dive:** [Node.js CLI를 Rust로 재작성 — 43초에서 1초로](https://mag1c.tistory.com/601) | [English](https://medium.com/@diehreo/i-rewrote-a-node-js-cli-in-rust-it-went-from-43s-to-1s-c13e38e7fe88)
 

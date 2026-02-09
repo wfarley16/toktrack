@@ -41,7 +41,7 @@ toktrack (cached):  ▏ ~0.04s (daily use)
 ## Features
 
 - **Ultra-Fast Parsing** — simd-json + rayon parallel processing (~3 GiB/s throughput)
-- **TUI Dashboard** — 4 views (Overview, Models, Daily, Stats) with daily/weekly/monthly breakdown
+- **TUI Dashboard** — 3 tabs (Overview, Stats, Models) with daily/weekly/monthly views
 - **CLI Commands** — `daily`, `weekly`, `monthly`, `stats` with JSON output support
 - **Multi-CLI Support** — Claude Code, Codex CLI, Gemini CLI, OpenCode in one place
 - **Data Preservation** — Cached daily summaries survive CLI data deletion
@@ -99,9 +99,9 @@ toktrack
 
 ```bash
 # Open TUI at specific tab
-toktrack daily     # Daily tab (daily view)
-toktrack weekly    # Daily tab (weekly view)
-toktrack monthly   # Daily tab (monthly view)
+toktrack daily     # Overview (daily view)
+toktrack weekly    # Overview (weekly view)
+toktrack monthly   # Overview (monthly view)
 toktrack stats     # Stats tab
 
 # JSON output (for scripting)
@@ -115,13 +115,13 @@ toktrack stats --json
 
 | Key | Action |
 |-----|--------|
-| `1-4` | Switch tabs directly |
+| `1-3` | Switch tabs directly |
 | `Tab` / `Shift+Tab` | Next / Previous tab |
 | `j` / `k` or `↑` / `↓` | Scroll up / down |
 | `Enter` | Open model breakdown popup (Daily tab) |
 | `d` / `w` / `m` | Daily / Weekly / Monthly view (Daily tab) |
 | `?` | Toggle help |
-| `q` | Quit |
+| `Ctrl+C` | Quit |
 
 ## Supported AI CLIs
 
@@ -130,7 +130,7 @@ toktrack stats --json
 | Claude Code | ✅ | `~/.claude/projects/` |
 | Codex CLI | ✅ | `~/.codex/sessions/` |
 | Gemini CLI | ✅ | `~/.gemini/tmp/*/chats/` |
-| OpenCode | ✅ | `~/.local/share/opencode/storage/` |
+| OpenCode | ✅ | `~/.local/share/opencode/storage/message/` |
 
 ## Performance
 
@@ -195,7 +195,7 @@ The next run will rebuild the cache from available session data.
 
 **Cold path** (first run): Full glob scan → parallel SIMD parsing → build cache → aggregate.
 
-**Warm path** (cached): Load cached summaries → parse only recent files (24h mtime filter) → merge → aggregate.
+**Warm path** (cached): Load cached summaries → parse only recent files (yesterday midnight mtime filter) → merge → aggregate.
 
 > **Deep Dive:** [I Rewrote a Node.js CLI in Rust — It Went from 43s to 1s](https://medium.com/@diehreo/i-rewrote-a-node-js-cli-in-rust-it-went-from-43s-to-1s-c13e38e7fe88) | [한국어](https://mag1c.tistory.com/601)
 

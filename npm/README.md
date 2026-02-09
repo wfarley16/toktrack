@@ -32,7 +32,7 @@ npm install -g toktrack
 ## Features
 
 - **Ultra-Fast Parsing** — simd-json + rayon parallel processing (~3 GiB/s throughput)
-- **TUI Dashboard** — 4 views (Overview, Models, Daily, Stats) with daily/weekly/monthly breakdown
+- **TUI Dashboard** — 3 tabs (Overview, Stats, Models) with daily/weekly/monthly views
 - **Multi-CLI Support** — Claude Code, Codex CLI, Gemini CLI, OpenCode
 - **CLI Commands** — `daily`, `weekly`, `monthly`, `stats` with JSON output
 - **Data Preservation** — Cached daily summaries survive CLI data deletion
@@ -44,7 +44,7 @@ npm install -g toktrack
 | Claude Code | `~/.claude/projects/` |
 | Codex CLI | `~/.codex/sessions/` |
 | Gemini CLI | `~/.gemini/tmp/*/chats/` |
-| OpenCode | `~/.local/share/opencode/storage/` |
+| OpenCode | `~/.local/share/opencode/storage/message/` |
 
 ## Supported Platforms
 
