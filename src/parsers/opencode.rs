@@ -55,7 +55,10 @@ impl OpenCodeParser {
     pub fn new() -> Self {
         let data_dir = directories::BaseDirs::new()
             .map(|d| d.home_dir().join(".local").join("share"))
-            .unwrap_or_else(|| PathBuf::from("."))
+            .unwrap_or_else(|| {
+                eprintln!("[toktrack] Warning: Could not determine home directory");
+                PathBuf::from(".")
+            })
             .join("opencode")
             .join("storage")
             .join("message");
@@ -90,7 +93,7 @@ impl CLIParser for OpenCodeParser {
 
     fn parse_file(&self, path: &Path) -> Result<Vec<UsageEntry>> {
         let mut content = fs::read_to_string(path).map_err(ToktrackError::Io)?;
-        // SAFETY: simd_json requires mutable access for in-place parsing
+        // SAFETY: `content` is exclusively owned and not aliased; safe for simd_json in-place mutation
         let message: OpenCodeMessage = unsafe {
             simd_json::from_str(&mut content).map_err(|e| ToktrackError::Parse(e.to_string()))?
         };

@@ -45,7 +45,10 @@ impl ClaudeCodeParser {
     pub fn new() -> Self {
         let home = directories::BaseDirs::new()
             .map(|d| d.home_dir().to_path_buf())
-            .unwrap_or_else(|| PathBuf::from("."));
+            .unwrap_or_else(|| {
+                eprintln!("[toktrack] Warning: Could not determine home directory");
+                PathBuf::from(".")
+            });
         Self {
             data_dir: home.join(".claude").join("projects"),
         }

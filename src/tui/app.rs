@@ -445,7 +445,7 @@ impl App {
         if let Event::Key(key) = event {
             if key.kind == KeyEventKind::Press {
                 match (&self.update_status, key.code) {
-                    // Available state: up/down to select, Enter to confirm, q/Esc to quit
+                    // Available state: up/down to select, Enter to confirm, Esc to dismiss
                     (UpdateStatus::Available { .. }, KeyCode::Up | KeyCode::Down) => {
                         self.update_selection = 1 - self.update_selection;
                     }

@@ -50,7 +50,10 @@ impl GeminiParser {
     pub fn new() -> Self {
         let home = directories::BaseDirs::new()
             .map(|d| d.home_dir().to_path_buf())
-            .unwrap_or_else(|| PathBuf::from("."));
+            .unwrap_or_else(|| {
+                eprintln!("[toktrack] Warning: Could not determine home directory");
+                PathBuf::from(".")
+            });
         Self {
             data_dir: home.join(".gemini").join("tmp"),
         }
@@ -84,7 +87,7 @@ impl CLIParser for GeminiParser {
 
     fn parse_file(&self, path: &Path) -> Result<Vec<UsageEntry>> {
         let mut content = fs::read_to_string(path).map_err(ToktrackError::Io)?;
-        // SAFETY: simd_json requires mutable access for in-place parsing
+        // SAFETY: `content` is exclusively owned and not aliased; safe for simd_json in-place mutation
         let session: GeminiSession = unsafe {
             simd_json::from_str(&mut content).map_err(|e| ToktrackError::Parse(e.to_string()))?
         };
