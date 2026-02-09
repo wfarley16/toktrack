@@ -214,15 +214,12 @@ impl PricingService {
             None => return 0.0,
         };
 
-        // Non-cached input = input_tokens - cache_read_tokens
-        let non_cached_input = entry.input_tokens.saturating_sub(entry.cache_read_tokens);
-
         let input_cost = pricing.input_cost_per_token.unwrap_or(0.0);
         let output_cost = pricing.output_cost_per_token.unwrap_or(0.0);
         let cache_read_cost = pricing.cache_read_input_token_cost.unwrap_or(0.0);
         let cache_creation_cost = pricing.cache_creation_input_token_cost.unwrap_or(0.0);
 
-        (non_cached_input as f64 * input_cost)
+        (entry.input_tokens as f64 * input_cost)
             + (entry.cache_read_tokens as f64 * cache_read_cost)
             + (entry.cache_creation_tokens as f64 * cache_creation_cost)
             + (entry.output_tokens as f64 * output_cost)
@@ -390,18 +387,18 @@ mod tests {
         // - cache_read=$0.30/1M, cache_creation=$3.75/1M
         //
         // Entry: input=1000, output=500, cache_read=200, cache_creation=100
-        // non_cached_input = 1000 - 200 = 800
+        // input_tokens is already non-cached (cache tokens are separate fields)
         //
-        // Cost = (800 * 0.000003) + (200 * 0.0000003) + (100 * 0.00000375) + (500 * 0.000015)
-        //      = 0.0024 + 0.00006 + 0.000375 + 0.0075
-        //      = 0.010335
+        // Cost = (1000 * 0.000003) + (200 * 0.0000003) + (100 * 0.00000375) + (500 * 0.000015)
+        //      = 0.003 + 0.00006 + 0.000375 + 0.0075
+        //      = 0.010935
         let entry = make_entry(Some("claude-sonnet-4"), 1000, 500, 200, 100, None);
 
         let cost = service.calculate_cost(&entry);
 
         assert!(
-            (cost - 0.010335).abs() < 1e-10,
-            "Expected 0.010335, got {}",
+            (cost - 0.010935).abs() < 1e-10,
+            "Expected 0.010935, got {}",
             cost
         );
     }
@@ -427,22 +424,20 @@ mod tests {
     }
 
     #[test]
-    fn test_non_cached_input_calculation() {
+    fn test_input_tokens_not_double_deducted() {
         let (service, _temp) = create_test_service();
-        // If cache_read > input_tokens, saturating_sub should give 0
-        // This tests edge case: input=100, cache_read=150
+        // input_tokens is already non-cached; cache_read is a separate field
+        // input=100, cache_read=150, output=500
         let entry = make_entry(Some("claude-sonnet-4"), 100, 500, 150, 0, None);
 
-        // non_cached_input = 100.saturating_sub(150) = 0
-        // cost = (0 * input) + (150 * cache_read) + (0 * cache_create) + (500 * output)
-        //      = 0 + (150 * 0.0000003) + 0 + (500 * 0.000015)
-        //      = 0.000045 + 0.0075
-        //      = 0.007545
+        // cost = (100 * 0.000003) + (150 * 0.0000003) + (0 * cache_create) + (500 * 0.000015)
+        //      = 0.0003 + 0.000045 + 0 + 0.0075
+        //      = 0.007845
         let cost = service.calculate_cost(&entry);
 
         assert!(
-            (cost - 0.007545).abs() < 1e-10,
-            "Expected 0.007545, got {}",
+            (cost - 0.007845).abs() < 1e-10,
+            "Expected 0.007845, got {}",
             cost
         );
     }
