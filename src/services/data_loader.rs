@@ -266,7 +266,7 @@ impl DataLoaderService {
                 // GitHub Copilot is free, override cost to 0
                 if is_copilot_provider(entry.provider.as_deref()) {
                     entry.cost_usd = Some(0.0);
-                } else if entry.cost_usd.is_none() || entry.cost_usd == Some(0.0) {
+                } else if entry.cost_usd.is_none() {
                     if let Some(p) = pricing {
                         entry.cost_usd = Some(p.calculate_cost(&entry));
                     }
@@ -483,13 +483,12 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_pricing_zero_cost_triggers_recalculation() {
+    fn test_apply_pricing_zero_cost_is_trusted() {
         let service = DataLoaderService::new();
         let entries = vec![make_entry(Some(0.0), Some("anthropic"))];
         let result = service.apply_pricing(entries);
-        // Some(0.0) should NOT be trusted — should recalculate (or remain 0 if no pricing)
-        // Key: the condition should treat Some(0.0) same as None
-        assert_ne!(result[0].cost_usd, Some(0.0));
+        // Some(0.0) is a legitimate cost (e.g. free-tier providers) — trust it as-is
+        assert_eq!(result[0].cost_usd, Some(0.0));
     }
 
     #[test]
