@@ -4,10 +4,28 @@
 //! the duplicated data loading logic from CLI and TUI.
 
 use std::collections::HashMap;
+use std::time::SystemTime;
+
+use chrono::{Local, TimeZone};
 
 use crate::parsers::ParserRegistry;
 use crate::services::{Aggregator, DailySummaryCacheService, PricingService};
 use crate::types::{CacheWarning, DailySummary, Result, SourceUsage, ToktrackError, UsageEntry};
+
+/// Compute the warm-path cutoff: yesterday 00:00:00 local time.
+///
+/// Files modified on or after this time are re-parsed, ensuring that
+/// "yesterday" (the most recent completed day) is always recomputed
+/// before being trusted as a complete cached date.
+fn warm_path_since() -> SystemTime {
+    let yesterday = Local::now().date_naive() - chrono::Duration::days(1);
+    let yesterday_midnight = yesterday.and_hms_opt(0, 0, 0).unwrap();
+    let utc = Local
+        .from_local_datetime(&yesterday_midnight)
+        .unwrap()
+        .to_utc();
+    SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(utc.timestamp() as u64)
+}
 
 /// Result of loading data from all parsers
 #[derive(Debug)]
@@ -73,7 +91,7 @@ impl DataLoaderService {
             .as_ref()
             .ok_or_else(|| ToktrackError::Cache("No cache service".into()))?;
 
-        let since = std::time::SystemTime::now() - std::time::Duration::from_secs(24 * 3600);
+        let since = warm_path_since();
 
         let mut all_summaries = Vec::new();
         let mut source_stats: HashMap<String, (u64, f64)> = HashMap::new();
@@ -372,6 +390,52 @@ mod tests {
         assert_eq!(result[1].total_tokens, 1000);
         assert_eq!(result[2].source, "claude");
         assert_eq!(result[2].total_tokens, 500);
+    }
+
+    // ========== warm_path_since tests ==========
+
+    use chrono::Timelike;
+
+    #[test]
+    fn test_warm_path_since_is_start_of_yesterday_local() {
+        let since = warm_path_since();
+        let since_duration = since
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap();
+        let since_secs = since_duration.as_secs() as i64;
+
+        // Expected: yesterday 00:00:00 in local timezone
+        let yesterday = chrono::Local::now().date_naive() - chrono::Duration::days(1);
+        let yesterday_midnight = yesterday.and_hms_opt(0, 0, 0).unwrap();
+        let expected_utc = chrono::Local
+            .from_local_datetime(&yesterday_midnight)
+            .unwrap()
+            .to_utc();
+        let expected_secs = expected_utc.timestamp();
+
+        assert_eq!(since_secs, expected_secs);
+    }
+
+    #[test]
+    fn test_warm_path_since_is_before_now() {
+        let since = warm_path_since();
+        assert!(since < std::time::SystemTime::now());
+    }
+
+    #[test]
+    fn test_warm_path_since_is_at_midnight() {
+        let since = warm_path_since();
+        let since_duration = since
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap();
+        let since_secs = since_duration.as_secs() as i64;
+
+        let dt = chrono::DateTime::from_timestamp(since_secs, 0).unwrap();
+        let local_dt = dt.with_timezone(&chrono::Local);
+        // Must be exactly 00:00:00 in local time
+        assert_eq!(local_dt.hour(), 0);
+        assert_eq!(local_dt.minute(), 0);
+        assert_eq!(local_dt.second(), 0);
     }
 
     // ========== DataLoaderService::new tests ==========
