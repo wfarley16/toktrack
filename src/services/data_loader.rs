@@ -107,13 +107,27 @@ impl DataLoaderService {
             .unwrap_or_default();
 
         for session in sessions.iter_mut() {
+            let fallback_title = if !session.summary.is_empty() {
+                Some(session.summary.clone())
+            } else if !session.first_prompt.is_empty() {
+                Some(session.first_prompt.clone())
+            } else {
+                None
+            };
+
             if let Some(metadata) = metadata_map.get(&session.session_id) {
-                session.metadata = Some(metadata.clone());
+                let mut meta = metadata.clone();
+                // Backfill title from session data when sidecar has none
+                if meta.title.is_none() {
+                    meta.title = fallback_title;
+                }
+                session.metadata = Some(meta);
             } else if !session.git_branch.is_empty() {
                 // Virtual fallback: extract issue ID from branch name (not persisted)
                 if let Some(issue_id) = extract_issue_id(&session.git_branch) {
                     session.metadata = Some(SessionMetadata {
                         session_id: session.session_id.clone(),
+                        title: fallback_title,
                         issue_id: Some(issue_id),
                         tags: Vec::new(),
                         notes: None,

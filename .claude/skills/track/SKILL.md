@@ -1,6 +1,6 @@
 ---
 name: track
-description: View or edit session metadata (issue, tags, notes)
+description: View or edit session metadata (title, issue, tags, notes)
 ---
 
 # Track
@@ -26,6 +26,7 @@ Read Session ID → Load Sidecar → Display/Edit → Save
 
 3. **Quick Update** (if args provided)
    - `/track ISE-123` → set `issue_id` to `ISE-123`, save, print confirmation
+   - `/track title "Fix login bug"` → set `title`, save, print confirmation
    - `/track tag bug-fix` → append `bug-fix` to `tags`, save, print confirmation
    - `/track note "debugging flaky test"` → set `notes`, save, print confirmation
 
@@ -33,6 +34,7 @@ Read Session ID → Load Sidecar → Display/Edit → Save
    - Display current metadata in table format:
      ```
      Session: <session-id>
+     Title:   Fix login bug
      Issue:   ISE-123
      Tags:    bug-fix, urgent
      Skills:  clarify → implement → verify
@@ -40,6 +42,7 @@ Read Session ID → Load Sidecar → Display/Edit → Save
      Branch:  feature/ISE-123-fix-bug
      ```
    - Use AskUserQuestion to ask what to update:
+     - Title
      - Issue ID
      - Add tag
      - Set notes

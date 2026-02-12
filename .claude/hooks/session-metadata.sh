@@ -5,6 +5,8 @@
 set -e
 INPUT=$(cat)
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // ""')
+# Capture the first user prompt as session title (truncated to 120 chars)
+USER_PROMPT=$(echo "$INPUT" | jq -r '.prompt // ""' | head -c 120)
 
 if [ -z "$SESSION_ID" ] || [ "$SESSION_ID" = "" ]; then
   exit 0
@@ -40,6 +42,7 @@ NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 # Build sidecar JSON
 jq -n \
   --arg sid "$SESSION_ID" \
+  --arg title "$USER_PROMPT" \
   --arg issue "$ISSUE_ID" \
   --arg branch "$GIT_BRANCH" \
   --arg now "$NOW" \
@@ -53,6 +56,7 @@ jq -n \
     },
     created_at: $now,
     updated_at: $now
-  } + (if $issue != "" then {issue_id: $issue} else {} end)' > "$SIDECAR_FILE"
+  } + (if $title != "" then {title: $title} else {} end)
+    + (if $issue != "" then {issue_id: $issue} else {} end)' > "$SIDECAR_FILE"
 
 exit 0

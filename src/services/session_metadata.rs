@@ -105,6 +105,7 @@ mod tests {
         let now = Utc::now();
         SessionMetadata {
             session_id: session_id.to_string(),
+            title: Some("Fix the bug".to_string()),
             issue_id: Some("ISE-123".to_string()),
             tags: vec!["bug-fix".to_string()],
             notes: Some("test notes".to_string()),

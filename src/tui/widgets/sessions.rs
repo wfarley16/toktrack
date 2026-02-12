@@ -19,7 +19,7 @@ const MAX_CONTENT_WIDTH: u16 = 170;
 /// Column indices
 const COL_PROJECT: usize = 0;
 const COL_ISSUE: usize = 1;
-const COL_SUMMARY: usize = 2;
+const COL_TITLE: usize = 2;
 const COL_BRANCH: usize = 3;
 const COL_DATE: usize = 4;
 const COL_DURATION: usize = 5;
@@ -29,7 +29,7 @@ const COL_COST: usize = 6;
 const COLUMNS: [(&str, u16); 7] = [
     ("Project", 16),  // 0: COL_PROJECT (14 + 2 marker)
     ("Issue", 12),    // 1: COL_ISSUE
-    ("Summary", 40),  // 2: COL_SUMMARY
+    ("Title", 40),    // 2: COL_TITLE
     ("Branch", 18),   // 3: COL_BRANCH
     ("Date", 18),     // 4: COL_DATE
     ("Duration", 10), // 5: COL_DURATION
@@ -213,8 +213,7 @@ impl SessionsView<'_> {
                     label_with_arrow,
                     width = (width as usize) - 2
                 )
-            } else if col == COL_SUMMARY || col == COL_BRANCH || col == COL_DATE || col == COL_ISSUE
-            {
+            } else if col == COL_TITLE || col == COL_BRANCH || col == COL_DATE || col == COL_ISSUE {
                 format!("{:<width$}", label_with_arrow, width = width as usize)
             } else {
                 format!("{:>width$}", label_with_arrow, width = width as usize)
@@ -315,15 +314,21 @@ impl SessionsView<'_> {
                         Style::default().fg(self.theme.accent()),
                     )
                 }
-                COL_SUMMARY => {
-                    let text = if session.summary.is_empty() {
-                        &session.first_prompt
-                    } else {
-                        &session.summary
-                    };
-                    let summary = truncate_str(text, 40);
+                COL_TITLE => {
+                    let text = session
+                        .metadata
+                        .as_ref()
+                        .and_then(|m| m.title.as_deref())
+                        .unwrap_or_else(|| {
+                            if session.summary.is_empty() {
+                                &session.first_prompt
+                            } else {
+                                &session.summary
+                            }
+                        });
+                    let title = truncate_str(text, 40);
                     (
-                        format!("{:<40}", summary),
+                        format!("{:<40}", title),
                         Style::default().fg(self.theme.text()),
                     )
                 }
@@ -531,7 +536,7 @@ mod tests {
         let cols = visible_columns(50);
         assert_eq!(cols.len(), 4);
         assert!(cols.contains(&COL_PROJECT));
-        assert!(cols.contains(&COL_SUMMARY));
+        assert!(cols.contains(&COL_TITLE));
         assert!(cols.contains(&COL_DATE));
         assert!(cols.contains(&COL_COST));
         assert!(!cols.contains(&COL_ISSUE)); // Hidden at minimum

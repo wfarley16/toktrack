@@ -17,6 +17,10 @@ pub struct AnnotateArgs {
     #[arg(long)]
     pub latest: bool,
 
+    /// Set session title
+    #[arg(long)]
+    pub title: Option<String>,
+
     /// Set issue ID (e.g., ISE-123)
     #[arg(long)]
     pub issue: Option<String>,
@@ -53,6 +57,7 @@ impl AnnotateArgs {
             .load(&session_id)
             .unwrap_or_else(|| SessionMetadata {
                 session_id: session_id.clone(),
+                title: None,
                 issue_id: None,
                 tags: Vec::new(),
                 notes: None,
@@ -63,6 +68,11 @@ impl AnnotateArgs {
             });
 
         let mut changed = false;
+
+        if let Some(title) = self.title {
+            metadata.title = Some(title);
+            changed = true;
+        }
 
         if let Some(issue) = self.issue {
             metadata.issue_id = Some(issue);
@@ -137,6 +147,7 @@ mod tests {
 
         let older = SessionMetadata {
             session_id: "old-session".to_string(),
+            title: None,
             issue_id: None,
             tags: Vec::new(),
             notes: None,
@@ -147,6 +158,7 @@ mod tests {
         };
         let newer = SessionMetadata {
             session_id: "new-session".to_string(),
+            title: None,
             issue_id: None,
             tags: Vec::new(),
             notes: None,
@@ -169,6 +181,7 @@ mod tests {
         let args = AnnotateArgs {
             session_id: Some("test-session".to_string()),
             latest: false,
+            title: None,
             issue: Some("ISE-999".to_string()),
             tag: vec!["urgent".to_string()],
             note: Some("test note".to_string()),
@@ -179,6 +192,7 @@ mod tests {
         let now = Utc::now();
         let mut metadata = svc.load("test-session").unwrap_or_else(|| SessionMetadata {
             session_id: "test-session".to_string(),
+            title: None,
             issue_id: None,
             tags: Vec::new(),
             notes: None,
@@ -215,6 +229,7 @@ mod tests {
 
         let metadata = SessionMetadata {
             session_id: "tag-test".to_string(),
+            title: None,
             issue_id: None,
             tags: vec!["old-tag".to_string()],
             notes: None,
@@ -239,6 +254,7 @@ mod tests {
         let args = AnnotateArgs {
             session_id: None,
             latest: false,
+            title: None,
             issue: None,
             tag: Vec::new(),
             note: None,
