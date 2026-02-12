@@ -101,6 +101,7 @@ impl Widget for SessionDetailView<'_> {
             Constraint::Length(1), // 1: Summary (bold)
             Constraint::Length(1), // 2: First prompt (muted)
             Constraint::Length(1), // 3: Metadata line (project, branch, duration, msgs, cost)
+            Constraint::Length(1), // 4: Session ID line
         ];
 
         let sidecar_start = constraints.len();
@@ -126,6 +127,7 @@ impl Widget for SessionDetailView<'_> {
         self.render_summary(chunks[1], buf);
         self.render_first_prompt(chunks[2], buf);
         self.render_metadata(chunks[3], buf);
+        self.render_session_id(chunks[4], buf);
 
         if sidecar_lines > 0 {
             render_separator(chunks[sidecar_start], buf, self.theme);
@@ -217,6 +219,18 @@ impl SessionDetailView<'_> {
         Paragraph::new(Line::from(spans))
             .alignment(Alignment::Center)
             .render(area, buf);
+    }
+
+    fn render_session_id(&self, area: Rect, buf: &mut Buffer) {
+        Paragraph::new(Line::from(vec![
+            Span::styled("Session: ", Style::default().fg(self.theme.muted())),
+            Span::styled(
+                &self.session.session_id,
+                Style::default().fg(self.theme.date()),
+            ),
+        ]))
+        .alignment(Alignment::Center)
+        .render(area, buf);
     }
 
     fn render_table_header(&self, area: Rect, buf: &mut Buffer, visible: &[usize]) {
@@ -490,10 +504,10 @@ fn render_separator(area: Rect, buf: &mut Buffer, theme: Theme) {
 }
 
 /// Compute visible rows for session detail view (base overhead without sidecar)
-/// padding(1) + summary(1) + prompt(1) + metadata(1) + sep(1) + header(1) + sep(1) + keybindings(1) = 8
+/// padding(1) + summary(1) + prompt(1) + metadata(1) + session_id(1) + sep(1) + header(1) + sep(1) + keybindings(1) = 9
 /// When sidecar metadata is present, additional rows are used (separator + content lines)
 pub fn session_detail_visible_rows(terminal_height: u16) -> usize {
-    terminal_height.saturating_sub(8) as usize
+    terminal_height.saturating_sub(9) as usize
 }
 
 #[cfg(test)]
@@ -526,8 +540,8 @@ mod tests {
 
     #[test]
     fn test_session_detail_visible_rows() {
-        assert_eq!(session_detail_visible_rows(24), 16);
-        assert_eq!(session_detail_visible_rows(8), 0);
+        assert_eq!(session_detail_visible_rows(24), 15);
+        assert_eq!(session_detail_visible_rows(9), 0);
     }
 
     #[test]
