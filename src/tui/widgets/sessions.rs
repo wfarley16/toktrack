@@ -9,6 +9,7 @@ use ratatui::{
 };
 
 use super::tabs::{Tab, TabBar};
+use crate::services::session_metadata::extract_issue_id;
 use crate::tui::theme::Theme;
 use crate::types::SessionInfo;
 
@@ -17,26 +18,28 @@ const MAX_CONTENT_WIDTH: u16 = 170;
 
 /// Column indices
 const COL_PROJECT: usize = 0;
-const COL_SUMMARY: usize = 1;
-const COL_BRANCH: usize = 2;
-const COL_DATE: usize = 3;
-const COL_DURATION: usize = 4;
-const COL_COST: usize = 5;
+const COL_ISSUE: usize = 1;
+const COL_SUMMARY: usize = 2;
+const COL_BRANCH: usize = 3;
+const COL_DATE: usize = 4;
+const COL_DURATION: usize = 5;
+const COL_COST: usize = 6;
 
 /// Column definitions: (label, width)
-const COLUMNS: [(&str, u16); 6] = [
+const COLUMNS: [(&str, u16); 7] = [
     ("Project", 16),  // 0: COL_PROJECT (14 + 2 marker)
-    ("Summary", 40),  // 1: COL_SUMMARY
-    ("Branch", 18),   // 2: COL_BRANCH
-    ("Date", 18),     // 3: COL_DATE
-    ("Duration", 10), // 4: COL_DURATION
-    ("Cost", 10),     // 5: COL_COST
+    ("Issue", 12),    // 1: COL_ISSUE
+    ("Summary", 40),  // 2: COL_SUMMARY
+    ("Branch", 18),   // 3: COL_BRANCH
+    ("Date", 18),     // 4: COL_DATE
+    ("Duration", 10), // 5: COL_DURATION
+    ("Cost", 10),     // 6: COL_COST
 ];
 
 /// Determine which columns are visible for a given terminal width.
-/// Columns are hidden in priority order: Branch first, then Duration.
+/// Columns are hidden in priority order: Branch first, then Duration, then Issue.
 fn visible_columns(width: u16) -> Vec<usize> {
-    const HIDE_ORDER: [usize; 2] = [COL_BRANCH, COL_DURATION];
+    const HIDE_ORDER: [usize; 3] = [COL_BRANCH, COL_DURATION, COL_ISSUE];
 
     let mut visible: Vec<usize> = (0..COLUMNS.len()).collect();
 
@@ -210,7 +213,8 @@ impl SessionsView<'_> {
                     label_with_arrow,
                     width = (width as usize) - 2
                 )
-            } else if col == COL_SUMMARY || col == COL_BRANCH || col == COL_DATE {
+            } else if col == COL_SUMMARY || col == COL_BRANCH || col == COL_DATE || col == COL_ISSUE
+            {
                 format!("{:<width$}", label_with_arrow, width = width as usize)
             } else {
                 format!("{:>width$}", label_with_arrow, width = width as usize)
@@ -295,6 +299,19 @@ impl SessionsView<'_> {
                     let name = truncate_str(&session.project, 14);
                     (
                         format!("{}{:<14}", marker, name),
+                        Style::default().fg(self.theme.accent()),
+                    )
+                }
+                COL_ISSUE => {
+                    let issue = session
+                        .metadata
+                        .as_ref()
+                        .and_then(|m| m.issue_id.clone())
+                        .or_else(|| extract_issue_id(&session.git_branch))
+                        .unwrap_or_else(|| "—".to_string());
+                    let issue = truncate_str(&issue, 12);
+                    (
+                        format!("{:<12}", issue),
                         Style::default().fg(self.theme.accent()),
                     )
                 }
@@ -488,15 +505,25 @@ mod tests {
     #[test]
     fn test_visible_columns_full() {
         let cols = visible_columns(200);
-        assert_eq!(cols.len(), 6);
+        assert_eq!(cols.len(), 7);
     }
 
     #[test]
     fn test_visible_columns_hide_branch_first() {
-        // Total of all columns: 112. If we have 111, Branch should be hidden
-        let cols = visible_columns(111);
+        // Total of all 7 columns: 16+12+40+18+18+10+10 = 124. If < 124, Branch first hidden.
+        let cols = visible_columns(123);
         assert!(!cols.contains(&COL_BRANCH));
         assert!(cols.contains(&COL_DURATION)); // Duration still visible
+        assert!(cols.contains(&COL_ISSUE)); // Issue still visible
+    }
+
+    #[test]
+    fn test_visible_columns_hide_duration_second() {
+        // After hiding Branch (124-18=106), if < 106, Duration hidden
+        let cols = visible_columns(105);
+        assert!(!cols.contains(&COL_BRANCH));
+        assert!(!cols.contains(&COL_DURATION));
+        assert!(cols.contains(&COL_ISSUE)); // Issue still visible
     }
 
     #[test]
@@ -507,6 +534,7 @@ mod tests {
         assert!(cols.contains(&COL_SUMMARY));
         assert!(cols.contains(&COL_DATE));
         assert!(cols.contains(&COL_COST));
+        assert!(!cols.contains(&COL_ISSUE)); // Hidden at minimum
     }
 
     #[test]

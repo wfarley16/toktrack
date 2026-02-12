@@ -5,6 +5,7 @@ pub mod cache;
 pub mod data_loader;
 pub mod normalizer;
 pub mod pricing;
+pub mod session_metadata;
 pub mod update_checker;
 
 pub use aggregator::Aggregator;

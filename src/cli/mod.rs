@@ -1,5 +1,7 @@
 //! CLI command handling
 
+pub mod annotate;
+
 use clap::{Parser, Subcommand};
 
 use crate::services::{Aggregator, DataLoaderService};
@@ -49,6 +51,9 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+
+    /// Annotate session metadata (issue, tags, notes)
+    Annotate(annotate::AnnotateArgs),
 }
 
 impl Cli {
@@ -95,6 +100,7 @@ impl Cli {
                     })
                 }
             }
+            Some(Commands::Annotate(args)) => Ok(args.run()?),
         }
     }
 }

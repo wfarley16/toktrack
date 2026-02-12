@@ -94,30 +94,52 @@ impl Widget for SessionDetailView<'_> {
             height: area.height,
         };
 
-        let chunks = Layout::vertical([
+        let sidecar_lines = self.sidecar_line_count();
+
+        let mut constraints = vec![
             Constraint::Length(1), // 0: Top padding
             Constraint::Length(1), // 1: Summary (bold)
             Constraint::Length(1), // 2: First prompt (muted)
             Constraint::Length(1), // 3: Metadata line (project, branch, duration, msgs, cost)
-            Constraint::Length(1), // 4: Separator
-            Constraint::Length(1), // 5: Table header
-            Constraint::Fill(1),   // 6: Request rows
-            Constraint::Length(1), // 7: Separator
-            Constraint::Length(1), // 8: Keybindings
-        ])
-        .split(centered_area);
+        ];
+
+        let sidecar_start = constraints.len();
+        if sidecar_lines > 0 {
+            // Separator + sidecar lines
+            constraints.push(Constraint::Length(1)); // sidecar separator
+            constraints.push(Constraint::Length(sidecar_lines as u16)); // sidecar content
+        }
+
+        let sep1_idx = constraints.len();
+        constraints.push(Constraint::Length(1)); // Separator
+        let header_idx = constraints.len();
+        constraints.push(Constraint::Length(1)); // Table header
+        let rows_idx = constraints.len();
+        constraints.push(Constraint::Fill(1)); // Request rows
+        let sep2_idx = constraints.len();
+        constraints.push(Constraint::Length(1)); // Separator
+        let keys_idx = constraints.len();
+        constraints.push(Constraint::Length(1)); // Keybindings
+
+        let chunks = Layout::vertical(constraints).split(centered_area);
 
         self.render_summary(chunks[1], buf);
         self.render_first_prompt(chunks[2], buf);
         self.render_metadata(chunks[3], buf);
-        render_separator(chunks[4], buf, self.theme);
+
+        if sidecar_lines > 0 {
+            render_separator(chunks[sidecar_start], buf, self.theme);
+            self.render_sidecar_metadata(chunks[sidecar_start + 1], buf);
+        }
+
+        render_separator(chunks[sep1_idx], buf, self.theme);
 
         let visible = visible_columns(centered_area.width);
-        self.render_table_header(chunks[5], buf, &visible);
-        self.render_request_rows(chunks[6], buf, &visible);
+        self.render_table_header(chunks[header_idx], buf, &visible);
+        self.render_request_rows(chunks[rows_idx], buf, &visible);
 
-        render_separator(chunks[7], buf, self.theme);
-        self.render_keybindings(chunks[8], buf);
+        render_separator(chunks[sep2_idx], buf, self.theme);
+        self.render_keybindings(chunks[keys_idx], buf);
     }
 }
 
@@ -311,6 +333,112 @@ impl SessionDetailView<'_> {
             .render(area, buf);
     }
 
+    /// Count how many lines the sidecar metadata section needs
+    fn sidecar_line_count(&self) -> usize {
+        let meta = match &self.session.metadata {
+            Some(m) => m,
+            None => return 0,
+        };
+
+        let mut lines = 0;
+        if meta.issue_id.is_some() {
+            lines += 1;
+        }
+        if !meta.tags.is_empty() {
+            lines += 1;
+        }
+        if !meta.skills_used.is_empty() {
+            lines += 1;
+        }
+        if meta.notes.is_some() {
+            lines += 1;
+        }
+        lines
+    }
+
+    /// Render sidecar metadata section (issue, tags, skills, notes)
+    fn render_sidecar_metadata(&self, area: Rect, buf: &mut Buffer) {
+        let meta = match &self.session.metadata {
+            Some(m) => m,
+            None => return,
+        };
+
+        let label_style = Style::default()
+            .fg(self.theme.muted())
+            .add_modifier(Modifier::BOLD);
+        let value_style = Style::default().fg(self.theme.text());
+        let accent_style = Style::default().fg(self.theme.accent());
+
+        let mut y = area.y;
+
+        if let Some(issue_id) = &meta.issue_id {
+            let line = Line::from(vec![
+                Span::styled("Issue:  ", label_style),
+                Span::styled(issue_id, accent_style),
+            ]);
+            Paragraph::new(line).alignment(Alignment::Left).render(
+                Rect {
+                    y,
+                    height: 1,
+                    ..area
+                },
+                buf,
+            );
+            y += 1;
+        }
+
+        if !meta.tags.is_empty() {
+            let tags_str = meta.tags.join(", ");
+            let line = Line::from(vec![
+                Span::styled("Tags:   ", label_style),
+                Span::styled(tags_str, value_style),
+            ]);
+            Paragraph::new(line).alignment(Alignment::Left).render(
+                Rect {
+                    y,
+                    height: 1,
+                    ..area
+                },
+                buf,
+            );
+            y += 1;
+        }
+
+        if !meta.skills_used.is_empty() {
+            let skills_str = meta.skills_used.join(" → ");
+            let line = Line::from(vec![
+                Span::styled("Skills: ", label_style),
+                Span::styled(skills_str, value_style),
+            ]);
+            Paragraph::new(line).alignment(Alignment::Left).render(
+                Rect {
+                    y,
+                    height: 1,
+                    ..area
+                },
+                buf,
+            );
+            y += 1;
+        }
+
+        if let Some(notes) = &meta.notes {
+            let max_len = area.width.saturating_sub(8) as usize;
+            let notes_str = truncate_str(notes, max_len);
+            let line = Line::from(vec![
+                Span::styled("Notes:  ", label_style),
+                Span::styled(notes_str, value_style),
+            ]);
+            Paragraph::new(line).alignment(Alignment::Left).render(
+                Rect {
+                    y,
+                    height: 1,
+                    ..area
+                },
+                buf,
+            );
+        }
+    }
+
     fn render_keybindings(&self, area: Rect, buf: &mut Buffer) {
         let bindings = Paragraph::new(Line::from(vec![
             Span::styled("↑↓", Style::default().fg(self.theme.accent())),
@@ -361,8 +489,9 @@ fn render_separator(area: Rect, buf: &mut Buffer, theme: Theme) {
     buf.set_string(area.x, area.y, &line, Style::default().fg(theme.muted()));
 }
 
-/// Compute visible rows for session detail view
+/// Compute visible rows for session detail view (base overhead without sidecar)
 /// padding(1) + summary(1) + prompt(1) + metadata(1) + sep(1) + header(1) + sep(1) + keybindings(1) = 8
+/// When sidecar metadata is present, additional rows are used (separator + content lines)
 pub fn session_detail_visible_rows(terminal_height: u16) -> usize {
     terminal_height.saturating_sub(8) as usize
 }

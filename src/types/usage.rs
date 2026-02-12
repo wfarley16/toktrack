@@ -205,6 +205,36 @@ pub struct SessionInfo {
     pub total_tokens: u64,
     /// Most-used model in this session
     pub primary_model: String,
+    /// Sidecar metadata (populated from ~/.toktrack/sessions/)
+    pub metadata: Option<SessionMetadata>,
+}
+
+/// Sidecar metadata for a Claude Code session.
+/// Stored as `~/.toktrack/sessions/<session-id>.json`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SessionMetadata {
+    pub session_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issue_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skills_used: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_detected: Option<AutoDetected>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Auto-detected metadata from environment (git branch, etc.)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AutoDetected {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_branch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issue_id_source: Option<String>,
 }
 
 /// A single API request within a session detail view

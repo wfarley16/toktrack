@@ -4,7 +4,7 @@ mod error;
 mod usage;
 
 pub use error::*;
-pub use usage::*;
+pub use usage::*; // includes SessionMetadata, AutoDetected
 
 /// Cache loading warning types
 #[derive(Debug, Clone)]

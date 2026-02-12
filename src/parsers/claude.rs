@@ -216,6 +216,7 @@ impl ClaudeCodeParser {
                     total_cost_usd,
                     total_tokens,
                     primary_model,
+                    metadata: None,
                 });
             }
         }
@@ -367,6 +368,7 @@ impl ClaudeCodeParser {
             total_cost_usd: total_cost,
             total_tokens,
             primary_model,
+            metadata: None,
         })
     }
 

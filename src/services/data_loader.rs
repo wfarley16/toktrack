@@ -9,9 +9,11 @@ use std::time::SystemTime;
 use chrono::{Local, TimeZone};
 
 use crate::parsers::{ClaudeCodeParser, ParserRegistry};
+use crate::services::session_metadata::{extract_issue_id, SessionMetadataService};
 use crate::services::{Aggregator, DailySummaryCacheService, PricingService};
 use crate::types::{
-    CacheWarning, DailySummary, Result, SessionInfo, SourceUsage, ToktrackError, UsageEntry,
+    AutoDetected, CacheWarning, DailySummary, Result, SessionInfo, SessionMetadata, SourceUsage,
+    ToktrackError, UsageEntry,
 };
 
 /// Compute the warm-path cutoff: yesterday 00:00:00 local time.
@@ -77,7 +79,10 @@ impl DataLoaderService {
     /// Load data from all parsers using cache-first strategy
     pub fn load(&self) -> Result<LoadResult> {
         // Load sessions independently (always from sessions-index.json + JSONL fallback)
-        let sessions = ClaudeCodeParser::new().parse_sessions_index(self.pricing.as_ref());
+        let mut sessions = ClaudeCodeParser::new().parse_sessions_index(self.pricing.as_ref());
+
+        // Attach sidecar metadata to sessions
+        Self::attach_metadata(&mut sessions);
 
         if self.has_valid_cache() {
             if let Ok(mut result) = self.load_warm_path() {
@@ -91,6 +96,38 @@ impl DataLoaderService {
         let mut result = self.load_cold_path()?;
         result.sessions = sessions;
         Ok(result)
+    }
+
+    /// Attach sidecar metadata to sessions.
+    /// If no sidecar exists, try `extract_issue_id` from git_branch as virtual fallback.
+    fn attach_metadata(sessions: &mut [SessionInfo]) {
+        let metadata_map = SessionMetadataService::new()
+            .ok()
+            .map(|svc| svc.load_all())
+            .unwrap_or_default();
+
+        for session in sessions.iter_mut() {
+            if let Some(metadata) = metadata_map.get(&session.session_id) {
+                session.metadata = Some(metadata.clone());
+            } else if !session.git_branch.is_empty() {
+                // Virtual fallback: extract issue ID from branch name (not persisted)
+                if let Some(issue_id) = extract_issue_id(&session.git_branch) {
+                    session.metadata = Some(SessionMetadata {
+                        session_id: session.session_id.clone(),
+                        issue_id: Some(issue_id),
+                        tags: Vec::new(),
+                        notes: None,
+                        skills_used: Vec::new(),
+                        auto_detected: Some(AutoDetected {
+                            git_branch: Some(session.git_branch.clone()),
+                            issue_id_source: Some("branch".to_string()),
+                        }),
+                        created_at: session.created,
+                        updated_at: session.created,
+                    });
+                }
+            }
+        }
     }
 
     /// Check if any parser has a valid (version-matching) cache
