@@ -8,9 +8,11 @@ use std::time::SystemTime;
 
 use chrono::{Local, TimeZone};
 
-use crate::parsers::ParserRegistry;
+use crate::parsers::{ClaudeCodeParser, ParserRegistry};
 use crate::services::{Aggregator, DailySummaryCacheService, PricingService};
-use crate::types::{CacheWarning, DailySummary, Result, SourceUsage, ToktrackError, UsageEntry};
+use crate::types::{
+    CacheWarning, DailySummary, Result, SessionInfo, SourceUsage, ToktrackError, UsageEntry,
+};
 
 /// Compute the warm-path cutoff: yesterday 00:00:00 local time.
 ///
@@ -47,6 +49,8 @@ pub struct LoadResult {
     pub source_summaries: HashMap<String, Vec<DailySummary>>,
     /// Cache warning indicator (if any)
     pub cache_warning: Option<CacheWarning>,
+    /// Claude Code session metadata
+    pub sessions: Vec<SessionInfo>,
 }
 
 /// Unified data loading service
@@ -72,15 +76,21 @@ impl DataLoaderService {
 
     /// Load data from all parsers using cache-first strategy
     pub fn load(&self) -> Result<LoadResult> {
+        // Load sessions independently (always from sessions-index.json + JSONL fallback)
+        let sessions = ClaudeCodeParser::new().parse_sessions_index(self.pricing.as_ref());
+
         if self.has_valid_cache() {
-            if let Ok(result) = self.load_warm_path() {
+            if let Ok(mut result) = self.load_warm_path() {
                 if !result.summaries.is_empty() {
+                    result.sessions = sessions;
                     return Ok(result);
                 }
             }
         }
 
-        self.load_cold_path()
+        let mut result = self.load_cold_path()?;
+        result.sessions = sessions;
+        Ok(result)
     }
 
     /// Check if any parser has a valid (version-matching) cache
@@ -160,6 +170,7 @@ impl DataLoaderService {
             source_usage,
             source_summaries,
             cache_warning,
+            sessions: Vec::new(), // populated by load()
         })
     }
 
@@ -246,6 +257,7 @@ impl DataLoaderService {
             source_usage,
             source_summaries,
             cache_warning,
+            sessions: Vec::new(), // populated by load()
         })
     }
 

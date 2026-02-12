@@ -15,7 +15,10 @@ use super::theme::Theme;
 
 use crate::services::update_checker::{check_for_update, execute_update, UpdateCheckResult};
 use crate::services::{Aggregator, DataLoaderService};
-use crate::types::{CacheWarning, DailySummary, SourceUsage, StatsData, TotalSummary};
+use crate::types::{
+    CacheWarning, DailySummary, SessionDetailEntry, SessionInfo, SourceUsage, StatsData,
+    TotalSummary,
+};
 
 use super::widgets::{
     daily::{DailyData, DailyView, DailyViewMode},
@@ -24,6 +27,8 @@ use super::widgets::{
     models::ModelsData,
     overview::{Overview, OverviewData},
     quit_confirm::{QuitConfirmPopup, QuitConfirmState},
+    session_detail::SessionDetailView,
+    sessions::{SessionSort, SessionsView},
     source_detail::SourceDetailView,
     spinner::{LoadingStage, Spinner},
     stats::StatsView,
@@ -36,6 +41,7 @@ use super::widgets::{
 pub enum ViewMode {
     Dashboard { tab: Tab },
     SourceDetail { source: String },
+    SessionDetail { session_index: usize },
 }
 
 impl Default for ViewMode {
@@ -83,6 +89,8 @@ pub struct AppData {
     /// Cache warning indicator for display in TUI
     #[allow(dead_code)] // Reserved for warning indicator feature
     pub cache_warning: Option<CacheWarning>,
+    /// Claude Code session metadata
+    pub sessions: Vec<SessionInfo>,
 }
 
 /// Update overlay status
@@ -136,6 +144,11 @@ pub struct App {
     quit_confirm: Option<QuitConfirmState>,
     model_breakdown: Option<ModelBreakdownState>,
     terminal_height: u16,
+    sessions_scroll: usize,
+    sessions_selected: Option<usize>,
+    sessions_sort: SessionSort,
+    session_detail_entries: Vec<SessionDetailEntry>,
+    session_detail_scroll: usize,
 }
 
 impl App {
@@ -166,6 +179,11 @@ impl App {
             quit_confirm: None,
             model_breakdown: None,
             terminal_height: 24,
+            sessions_scroll: 0,
+            sessions_selected: None,
+            sessions_sort: SessionSort::default(),
+            session_detail_entries: Vec::new(),
+            session_detail_scroll: 0,
         }
     }
 
@@ -175,6 +193,7 @@ impl App {
     fn effective_visible_rows(&self) -> usize {
         let overhead: u16 = match &self.view_mode {
             ViewMode::SourceDetail { .. } => 8,
+            ViewMode::SessionDetail { .. } => 8,
             ViewMode::Dashboard { .. } => 7,
         };
         self.terminal_height.saturating_sub(overhead) as usize
@@ -233,6 +252,7 @@ impl App {
                 match &self.view_mode {
                     ViewMode::Dashboard { .. } => self.handle_dashboard_event(key.code),
                     ViewMode::SourceDetail { .. } => self.handle_source_detail_event(key.code),
+                    ViewMode::SessionDetail { .. } => self.handle_session_detail_event(key.code),
                 }
             }
         }
@@ -285,6 +305,12 @@ impl App {
             }
             KeyCode::Char('3') => {
                 if let Some(tab) = Tab::from_number(3) {
+                    self.set_tab(tab);
+                }
+                return;
+            }
+            KeyCode::Char('4') => {
+                if let Some(tab) = Tab::from_number(4) {
                     self.set_tab(tab);
                 }
                 return;
@@ -349,6 +375,59 @@ impl App {
                 }
                 _ => {}
             },
+            Tab::Sessions => match code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    if let AppState::Ready { data } = &self.state {
+                        if data.sessions.is_empty() {
+                            return;
+                        }
+                        let current = self.sessions_selected.unwrap_or(0);
+                        if current > 0 {
+                            self.sessions_selected = Some(current - 1);
+                            self.adjust_sessions_scroll();
+                        }
+                    }
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    if let AppState::Ready { data } = &self.state {
+                        if data.sessions.is_empty() {
+                            return;
+                        }
+                        let max = data.sessions.len().saturating_sub(1);
+                        let current = self.sessions_selected.unwrap_or(0);
+                        if current < max {
+                            self.sessions_selected = Some(current + 1);
+                            self.adjust_sessions_scroll();
+                        }
+                    }
+                }
+                KeyCode::Char('s') => {
+                    self.sessions_sort = self.sessions_sort.next();
+                    if let AppState::Ready { data } = &mut self.state {
+                        self.sessions_sort.sort(&mut data.sessions);
+                    }
+                    self.sessions_selected = Some(0);
+                    self.sessions_scroll = 0;
+                }
+                KeyCode::Enter => {
+                    if let Some(idx) = self.sessions_selected {
+                        if let AppState::Ready { data } = &self.state {
+                            if let Some(session) = data.sessions.get(idx) {
+                                let pricing = crate::services::PricingService::from_cache_only();
+                                let entries =
+                                    crate::parsers::ClaudeCodeParser::parse_session_detail(
+                                        &session.jsonl_path,
+                                        pricing.as_ref(),
+                                    );
+                                self.session_detail_entries = entries;
+                                self.session_detail_scroll = 0;
+                                self.view_mode = ViewMode::SessionDetail { session_index: idx };
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            },
             Tab::Stats | Tab::Models => {
                 // Stats/Models tabs have no additional keys beyond common ones
             }
@@ -387,6 +466,52 @@ impl App {
                 self.show_help = !self.show_help;
             }
             _ => {}
+        }
+    }
+
+    /// Handle keyboard events in SessionDetail mode
+    fn handle_session_detail_event(&mut self, code: KeyCode) {
+        match code {
+            KeyCode::Esc => {
+                if self.show_help {
+                    self.show_help = false;
+                } else {
+                    self.session_detail_entries.clear();
+                    self.session_detail_scroll = 0;
+                    self.view_mode = ViewMode::Dashboard { tab: Tab::Sessions };
+                }
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                if self.session_detail_scroll > 0 {
+                    self.session_detail_scroll -= 1;
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                let count = self.session_detail_entries.len();
+                let visible = super::widgets::session_detail::session_detail_visible_rows(
+                    self.terminal_height,
+                );
+                let max = count.saturating_sub(visible);
+                if self.session_detail_scroll < max {
+                    self.session_detail_scroll += 1;
+                }
+            }
+            KeyCode::Char('?') => {
+                self.show_help = !self.show_help;
+            }
+            _ => {}
+        }
+    }
+
+    /// Adjust scroll offset to keep the sessions selection visible
+    fn adjust_sessions_scroll(&mut self) {
+        let visible = super::widgets::sessions::sessions_visible_rows(self.terminal_height);
+        if let Some(selected) = self.sessions_selected {
+            if selected < self.sessions_scroll {
+                self.sessions_scroll = selected;
+            } else if selected >= self.sessions_scroll + visible {
+                self.sessions_scroll = selected.saturating_sub(visible - 1);
+            }
         }
     }
 
@@ -508,7 +633,7 @@ impl App {
                 .source_daily_data
                 .get(source)
                 .unwrap_or(&data.daily_data),
-            ViewMode::Dashboard { .. } => &data.daily_data,
+            ViewMode::Dashboard { .. } | ViewMode::SessionDetail { .. } => &data.daily_data,
         }
     }
 
@@ -693,6 +818,17 @@ impl Widget for &App {
                             .with_tab(*tab);
                             models_view.render(area, buf);
                         }
+                        Tab::Sessions => {
+                            let sessions_view = SessionsView::new(
+                                &data.sessions,
+                                self.sessions_scroll,
+                                self.sessions_selected,
+                                *tab,
+                                self.sessions_sort,
+                                self.theme,
+                            );
+                            sessions_view.render(area, buf);
+                        }
                     },
                     ViewMode::SourceDetail { source } => {
                         let daily_data = data
@@ -713,6 +849,17 @@ impl Widget for &App {
                             self.theme,
                         );
                         source_detail.render(area, buf);
+                    }
+                    ViewMode::SessionDetail { session_index } => {
+                        if let Some(session) = data.sessions.get(*session_index) {
+                            let detail_view = SessionDetailView::new(
+                                session,
+                                &self.session_detail_entries,
+                                self.session_detail_scroll,
+                                self.theme,
+                            );
+                            detail_view.render(area, buf);
+                        }
                     }
                 }
 
@@ -793,6 +940,7 @@ fn load_data_sync() -> Result<Box<AppData>, String> {
         result.source_usage,
         result.source_summaries,
         result.cache_warning,
+        result.sessions,
     )
 }
 
@@ -802,6 +950,7 @@ fn build_app_data_from_summaries(
     source_usage: Vec<SourceUsage>,
     source_summaries: HashMap<String, Vec<DailySummary>>,
     cache_warning: Option<CacheWarning>,
+    sessions: Vec<SessionInfo>,
 ) -> Result<Box<AppData>, String> {
     let total = Aggregator::total_from_daily(&summaries);
 
@@ -856,6 +1005,7 @@ fn build_app_data_from_summaries(
         source_models_data,
         source_stats_data,
         cache_warning,
+        sessions,
     }))
 }
 
@@ -1016,6 +1166,7 @@ mod tests {
                 source_models_data: HashMap::new(),
                 source_stats_data: HashMap::new(),
                 cache_warning: None,
+                sessions: vec![],
             }),
         };
         app.daily_scroll = daily_scroll;
@@ -1320,6 +1471,7 @@ mod tests {
             source_models_data: HashMap::new(),
             source_stats_data: HashMap::new(),
             cache_warning: None,
+            sessions: vec![],
         })));
 
         let down = Event::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
@@ -1687,6 +1839,12 @@ mod tests {
         app.handle_event(Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)));
         assert!(matches!(
             app.view_mode,
+            ViewMode::Dashboard { tab: Tab::Sessions }
+        ));
+
+        app.handle_event(Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)));
+        assert!(matches!(
+            app.view_mode,
             ViewMode::Dashboard { tab: Tab::Overview }
         ));
     }
@@ -1701,7 +1859,7 @@ mod tests {
         )));
         assert!(matches!(
             app.view_mode,
-            ViewMode::Dashboard { tab: Tab::Models }
+            ViewMode::Dashboard { tab: Tab::Sessions }
         ));
     }
 

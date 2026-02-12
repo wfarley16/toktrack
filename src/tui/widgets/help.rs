@@ -15,7 +15,7 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Width and height of the help popup
 const POPUP_WIDTH: u16 = 42;
-const POPUP_HEIGHT: u16 = 20;
+const POPUP_HEIGHT: u16 = 21;
 
 /// Help popup widget showing keyboard shortcuts
 pub struct HelpPopup {
@@ -68,19 +68,20 @@ impl Widget for HelpPopup {
             Constraint::Length(1), // [1] Navigation header
             Constraint::Length(1), // [2] Separator
             Constraint::Length(1), // [3] Tab/Shift+Tab
-            Constraint::Length(1), // [4] 1-3
+            Constraint::Length(1), // [4] 1-4
             Constraint::Length(1), // [5] Up/Down
             Constraint::Length(1), // [6] Enter
             Constraint::Length(1), // [7] Esc
             Constraint::Length(1), // [8] d/w/m
             Constraint::Length(1), // [9] Enter (detail)
-            Constraint::Length(1), // [10] Padding
-            Constraint::Length(1), // [11] General header
-            Constraint::Length(1), // [12] Separator
-            Constraint::Length(1), // [13] Ctrl+C
-            Constraint::Length(1), // [14] ?
-            Constraint::Length(1), // [15] Padding
-            Constraint::Length(1), // [16] Close hint
+            Constraint::Length(1), // [10] Enter (sessions)
+            Constraint::Length(1), // [11] Padding
+            Constraint::Length(1), // [12] General header
+            Constraint::Length(1), // [13] Separator
+            Constraint::Length(1), // [14] Ctrl+C
+            Constraint::Length(1), // [15] ?
+            Constraint::Length(1), // [16] Padding
+            Constraint::Length(1), // [17] Close hint
             Constraint::Min(0),    // Remaining
         ])
         .split(inner);
@@ -107,7 +108,7 @@ impl Widget for HelpPopup {
 
         // Keybindings
         render_keybinding(chunks[3], buf, "Tab / Shift+Tab", "Switch view", self.theme);
-        render_keybinding(chunks[4], buf, "1 / 2 / 3", "Jump to tab", self.theme);
+        render_keybinding(chunks[4], buf, "1 / 2 / 3 / 4", "Jump to tab", self.theme);
         render_keybinding(chunks[5], buf, "Up/Down or j/k", "Navigate", self.theme);
         render_keybinding(chunks[6], buf, "Enter", "View source details", self.theme);
         render_keybinding(chunks[7], buf, "Esc", "Back to dashboard", self.theme);
@@ -125,6 +126,13 @@ impl Widget for HelpPopup {
             "Model breakdown",
             self.theme,
         );
+        render_keybinding(
+            chunks[10],
+            buf,
+            "Enter (sessions)",
+            "Session details",
+            self.theme,
+        );
 
         // General section
         let gen_header = Line::from(vec![Span::styled(
@@ -135,18 +143,18 @@ impl Widget for HelpPopup {
         )]);
         Paragraph::new(gen_header)
             .alignment(Alignment::Left)
-            .render(chunks[11], buf);
+            .render(chunks[12], buf);
 
         // Separator
         buf.set_string(
-            chunks[12].x,
-            chunks[12].y,
+            chunks[13].x,
+            chunks[13].y,
             &sep,
             Style::default().fg(self.theme.muted()),
         );
 
-        render_keybinding(chunks[13], buf, "Ctrl+C", "Quit", self.theme);
-        render_keybinding(chunks[14], buf, "?", "Toggle help", self.theme);
+        render_keybinding(chunks[14], buf, "Ctrl+C", "Quit", self.theme);
+        render_keybinding(chunks[15], buf, "?", "Toggle help", self.theme);
 
         // Close hint
         let hint = Line::from(vec![Span::styled(
@@ -155,7 +163,7 @@ impl Widget for HelpPopup {
         )]);
         Paragraph::new(hint)
             .alignment(Alignment::Center)
-            .render(chunks[16], buf);
+            .render(chunks[17], buf);
     }
 }
 

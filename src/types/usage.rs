@@ -180,6 +180,45 @@ pub struct SourceUsage {
     pub total_cost_usd: f64,
 }
 
+/// A single Claude Code session with metadata and aggregated cost/token data
+#[derive(Debug, Clone)]
+#[allow(dead_code)] // Fields reserved for session detail view and future features
+pub struct SessionInfo {
+    pub session_id: String,
+    /// Last segment of projectPath (e.g. "monorepo")
+    pub project: String,
+    /// Full projectPath
+    pub project_path: String,
+    /// AI-generated summary (e.g. "Database Transaction Handling Patterns")
+    pub summary: String,
+    /// What the user first asked
+    pub first_prompt: String,
+    pub message_count: u64,
+    pub created: DateTime<Utc>,
+    pub modified: DateTime<Utc>,
+    pub git_branch: String,
+    /// Full path to JSONL for on-demand detail parsing
+    pub jsonl_path: String,
+    /// Total cost for this session in USD
+    pub total_cost_usd: f64,
+    /// Total tokens across all requests
+    pub total_tokens: u64,
+    /// Most-used model in this session
+    pub primary_model: String,
+}
+
+/// A single API request within a session detail view
+#[derive(Debug, Clone)]
+pub struct SessionDetailEntry {
+    pub timestamp: DateTime<Utc>,
+    pub model: String,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cache_read_tokens: u64,
+    pub cache_creation_tokens: u64,
+    pub cost_usd: f64,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
