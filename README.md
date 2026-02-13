@@ -209,7 +209,7 @@ cargo bench   # Benchmarks
 
 ## Roadmap
 
-OpenCode support has been added! See [Supported AI CLIs](#supported-ai-clis).
+See [ROADMAP.md](ROADMAP.md) for the full prioritized backlog.
 
 ## Contributing
 
